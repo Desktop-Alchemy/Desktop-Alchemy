@@ -1,0 +1,46 @@
+{
+  "description": "Unmodified internet SVG sources used for Audio Dock top legends; monochrome geometry uses the original contours.",
+  "icons": [
+    {
+      "file": "teams.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/11.15.0/icons/microsoftteams.svg",
+      "version": "Simple Icons 11.15.0",
+      "license": "CC0-1.0",
+      "licenseFile": "simple-icons-CC0.txt",
+      "sha256": "9c509b9aea846e4a773d59df7fe3d29843e9e05c3579ce167d1e7e5ba14be1d1"
+    },
+    {
+      "file": "play-pause.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/play-pause-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "ee7649613a74c2ca5821f2876034ebc18cba6893fbdee3e96352fb7bc4586657"
+    },
+    {
+      "file": "microphone.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/microphone-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "7809c0448975df9a6943dbd696d86c3706697e228594751a49b29f0d55d4375a"
+    },
+    {
+      "file": "minus.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/minus-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "6ae8184346320ed2efc54c34739d56a463f3c441ae1790260957dee18428e4eb"
+    },
+    {
+      "file": "plus.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/plus-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "d924e999d110e1f84c3197dba33206d46fb94cb28a2b53f6ca35217466e3c92e"
+    }
+  ],
+  "notice": "Microsoft and Teams trademarks belong to Microsoft. These assets reproduce the controls on an unofficial model of the device."
+}

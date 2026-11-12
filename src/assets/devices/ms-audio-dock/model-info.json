@@ -1,0 +1,69 @@
+{
+  "revision": 2,
+  "dimensionsMm": {
+    "width": 167.6,
+    "depth": 80.2,
+    "height": 81
+  },
+  "axes": "Metres; +Y up; +Z front; origin at centre of underside",
+  "purpose": "Photo-reconstructed display model; not manufacturing CAD",
+  "sources": [
+    "https://news.microsoft.com/wp-content/uploads/prod/sites/646/2022/10/Microsoft-Audio-Dock-Fact-Sheet.pdf",
+    "https://support.microsoft.com/en-gb/surface/accessories/certified/set-up-and-use-microsoft-audio-dock"
+  ],
+  "iconSources": [
+    {
+      "file": "teams.svg",
+      "source": "https://raw.githubusercontent.com/simple-icons/simple-icons/11.15.0/icons/microsoftteams.svg",
+      "version": "Simple Icons 11.15.0",
+      "license": "CC0-1.0",
+      "licenseFile": "simple-icons-CC0.txt",
+      "sha256": "9c509b9aea846e4a773d59df7fe3d29843e9e05c3579ce167d1e7e5ba14be1d1"
+    },
+    {
+      "file": "play-pause.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/play-pause-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "ee7649613a74c2ca5821f2876034ebc18cba6893fbdee3e96352fb7bc4586657"
+    },
+    {
+      "file": "microphone.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/microphone-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "7809c0448975df9a6943dbd696d86c3706697e228594751a49b29f0d55d4375a"
+    },
+    {
+      "file": "minus.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/minus-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "6ae8184346320ed2efc54c34739d56a463f3c441ae1790260957dee18428e4eb"
+    },
+    {
+      "file": "plus.svg",
+      "source": "https://raw.githubusercontent.com/phosphor-icons/core/2b75f3ad12b420c9504ef05df8d2564a28f8500e/assets/light/plus-light.svg",
+      "version": "2b75f3ad12b420c9504ef05df8d2564a28f8500e",
+      "license": "MIT",
+      "licenseFile": "phosphor-MIT.txt",
+      "sha256": "d924e999d110e1f84c3197dba33206d46fb94cb28a2b53f6ca35217466e3c92e"
+    }
+  ],
+  "bytes": 3719768,
+  "meshes": 74,
+  "triangles": 56188,
+  "boundsIncludingCableMmXYZ": [
+    216.16,
+    81,
+    116.95
+  ],
+  "estimates": [
+    "Shoulder radii, control sizes/spacing, acoustic openings, underside and connector details estimated from official images.",
+    "Cable is a shortened display pose; no power adapter. No internal speaker components or engineering tolerances.",
+    "Buttons and IO have named groups. PBR colour and normal textures are embedded PNGs; no external textures or extensions required."
+  ]
+}

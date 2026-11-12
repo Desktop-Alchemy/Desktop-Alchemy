@@ -1,0 +1,163 @@
+{
+  "id": "dev.masterain.performance",
+  "name": "计算机性能",
+  "version": "1.1.0",
+  "api_version": 3,
+  "executable": "m18-performance-plugin.exe",
+  "permissions": ["widgets.write"],
+  "widgets": [
+    {
+      "id": "cpu",
+      "name": "CPU",
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#818CF8",
+        "show_progress": true
+      }
+    },
+    {
+      "id": "memory",
+      "name": "内存",
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#34D399",
+        "show_progress": true
+      },
+      "presentations": [
+        {
+          "id": "percent",
+          "name": "百分比"
+        },
+        {
+          "id": "available",
+          "name": "剩余容量"
+        },
+        {
+          "id": "used",
+          "name": "已用容量"
+        }
+      ]
+    },
+    {
+      "id": "disk",
+      "name": "磁盘容量",
+      "select_source": true,
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#38BDF8",
+        "show_progress": true
+      },
+      "presentations": [
+        {
+          "id": "available",
+          "name": "剩余容量"
+        },
+        {
+          "id": "used",
+          "name": "已用容量"
+        },
+        {
+          "id": "percent",
+          "name": "已用百分比"
+        }
+      ]
+    },
+    {
+      "id": "network",
+      "name": "网速",
+      "select_source": true,
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#22D3EE",
+        "show_progress": false
+      },
+      "presentations": [
+        {
+          "id": "duplex",
+          "name": "上下行"
+        },
+        {
+          "id": "download",
+          "name": "仅下载"
+        },
+        {
+          "id": "upload",
+          "name": "仅上传"
+        }
+      ]
+    },
+    {
+      "id": "battery",
+      "name": "系统电池",
+      "select_source": false,
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#A3E635",
+        "show_progress": true
+      },
+      "presentations": [
+        {
+          "id": "percent",
+          "name": "电量"
+        },
+        {
+          "id": "remaining",
+          "name": "预计剩余时间"
+        }
+      ]
+    },
+    {
+      "id": "temperature",
+      "name": "温度",
+      "select_source": true,
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#FB923C",
+        "show_progress": false
+      },
+      "presentations": []
+    },
+    {
+      "id": "fan",
+      "name": "风扇转速",
+      "select_source": true,
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#2DD4BF",
+        "show_progress": false
+      },
+      "presentations": []
+    },
+    {
+      "id": "power",
+      "name": "功耗",
+      "select_source": true,
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#FBBF24",
+        "show_progress": false
+      },
+      "presentations": []
+    },
+    {
+      "id": "voltage",
+      "name": "电压",
+      "select_source": true,
+      "default_style": {
+        "foreground": "#F8FAFC",
+        "background": "#171C28",
+        "accent": "#C084FC",
+        "show_progress": false
+      },
+      "presentations": []
+    }
+  ]
+}

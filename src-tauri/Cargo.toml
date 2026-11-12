@@ -1,0 +1,117 @@
+[workspace]
+members = [".", "crates/device-api", "crates/device-m18", "crates/device-audio-dock", "crates/device-simulator"]
+resolver = "2"
+
+[package]
+name = "desktop-alchemy"
+version = "0.1.0"
+edition = "2021"
+default-run = "desktop-alchemy"
+
+[features]
+default = ["device-m18", "device-ms-audio-dock"]
+device-m18 = ["dep:alchemy-m18"]
+device-ms-audio-dock = ["dep:alchemy-audio-dock"]
+device-simulator = ["dep:alchemy-device-simulator"]
+diagnostics = []
+example-plugin = []
+performance-plugin = []
+
+[lib]
+name = "desktop_alchemy_core"
+path = "src/lib.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+alchemy-device-api = { path = "crates/device-api" }
+alchemy-m18 = { path = "crates/device-m18", optional = true }
+alchemy-audio-dock = { path = "crates/device-audio-dock", optional = true }
+alchemy-device-simulator = { path = "crates/device-simulator", optional = true }
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ts-rs = { version = "11", features = ["serde-json-impl"] }
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif"] }
+resvg = "0.45"
+anyhow = "1"
+url = "=2.5.8"
+chrono = "=0.4.45"
+rmcp = { version = "=3.8.0", default-features = false, features = ["server", "macros", "transport-streamable-http-server"] }
+axum = "0.8.9"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio", "service"] }
+schemars = "1"
+tokio-util = "0.7"
+windows-sys = { version = "0.61", features = ["Win32_Globalization", "Win32_UI_Input", "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_Properties", "Win32_Devices_DeviceAndDriverInstallation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_IO", "Win32_System_Performance", "Win32_System_SystemInformation", "Win32_System_Power", "Win32_System_WindowsProgramming", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+libloading = "=0.7.4"
+zip = { version = "=6.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Com_StructuredStorage", "Win32_System_Registry", "Win32_UI_Shell_Common", "Win32_Graphics_Gdi", "Win32_Graphics_Imaging", "Win32_UI_Controls", "Foundation", "Foundation_Collections", "Media_Control", "Win32_UI_Accessibility", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_System_WinRT", "Win32_System_ProcessStatus"] }
+
+[dev-dependencies]
+rmcp = { version = "=3.8.0", default-features = false, features = ["client", "transport-streamable-http-client-reqwest", "reqwest"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
+
+[[bin]]
+name = "alchemy-input-diagnose"
+path = "src/bin/input_diagnose.rs"
+required-features = ["diagnostics", "device-ms-audio-dock"]
+
+[[bin]]
+name = "m18-diagnose"
+path = "src/bin/diagnose.rs"
+required-features = ["diagnostics", "device-m18"]
+
+[[bin]]
+name = "m18-example-plugin"
+path = "src/bin/example_plugin.rs"
+required-features = ["example-plugin"]
+
+[[bin]]
+name = "m18-performance-plugin"
+path = "src/bin/performance_plugin.rs"
+required-features = ["performance-plugin"]
+
+[[bin]]
+name = "m18-test-plugin"
+path = "tests/fixtures/plugin.rs"
+required-features = ["diagnostics"]
+
+[[test]]
+name = "plugins"
+path = "tests/plugins.rs"
+required-features = ["diagnostics", "example-plugin", "performance-plugin"]
+
+[[bin]]
+name = "m18-test-launcher"
+path = "tests/fixtures/launcher.rs"
+required-features = ["diagnostics"]
+
+[[test]]
+name = "program_launch"
+path = "tests/program_launch.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "m18-plugin-pack"
+path = "src/bin/plugin_pack.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "m18-icon-publisher"
+path = "src/bin/icon_publisher.rs"
+required-features = ["example-plugin"]
+
+[[bin]]
+name = "audio-dock-diagnose"
+path = "src/bin/audio_dock_diagnose.rs"
+required-features = ["diagnostics", "device-ms-audio-dock"]

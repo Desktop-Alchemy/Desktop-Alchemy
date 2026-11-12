@@ -1,0 +1,28 @@
+src/bindings.ts
+scripts/visual-check.js
+scripts/ui-cleanup-check.js
+dist/
+node_modules/
+vendor/
+artifacts/
+.local/
+output/
+src-tauri/target/
+
+# Playwright CLI expects a function expression without a trailing semicolon.
+scripts/icon-library-ui-check.js
+scripts/features-ui-check.js
+scripts/applications-ui-check.js
+scripts/windows-apps-ui-check.js
+
+# Playwright CLI evaluates these as function expressions (no trailing semicolon).
+scripts/multi-device-ui-check.js
+scripts/mcp-management-ui-check.js
+scripts/multi-device-native-ui-check.js
+
+scripts/audio-dock-ui-check.js
+scripts/platform-ui-check.js
+scripts/render-m18-poster.js
+
+scripts/platform-native-ui-check.js
+scripts/content-ui-check.js

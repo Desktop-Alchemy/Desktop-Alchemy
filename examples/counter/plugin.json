@@ -1,0 +1,8 @@
+{
+  "id": "dev.masterain.counter",
+  "name": "计数与切页示例",
+  "version": "0.1.0",
+  "api_version": 3,
+  "executable": "m18-example-plugin.exe",
+  "permissions": ["events", "pages.read", "pages.activate", "display.write"]
+}

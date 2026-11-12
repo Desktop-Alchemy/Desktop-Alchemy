@@ -1,0 +1,18 @@
+[package]
+name = "alchemy-device-api"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+ts-rs = { version = "11", features = ["serde-json-impl"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["sync", "rt", "macros", "time", "process"] }
+tokio-util = "0.7"
+base64 = "0.22"
+windows-sys = { version = "0.61", features = ["Win32_UI_Input", "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_Properties", "Win32_Devices_DeviceAndDriverInstallation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_IO", "Win32_System_Performance", "Win32_System_SystemInformation", "Win32_System_Power", "Win32_System_WindowsProgramming", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+
+sha2 = "0.10"

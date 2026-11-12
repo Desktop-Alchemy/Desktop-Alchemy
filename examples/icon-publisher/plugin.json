@@ -1,0 +1,10 @@
+{
+  "id": "example.icon-publisher",
+  "name": "运行时图标示例",
+  "version": "1.0.0",
+  "api_version": 3,
+  "executable": "m18-icon-publisher.exe",
+  "permissions": [
+    "icons.write"
+  ]
+}

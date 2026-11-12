@@ -1,0 +1,32 @@
+{
+  "revision": 2,
+  "dimensionsMm": {
+    "width": 117,
+    "depth": 104,
+    "height": 21
+  },
+  "boundsMmXYZ": [
+    117,
+    21,
+    104
+  ],
+  "axes": "X width; Y up; +Z front; keys numbered left to right from rear row",
+  "meshes": 72,
+  "triangles": 19508,
+  "uniqueGeometries": 22,
+  "materials": 10,
+  "bytes": 237864,
+  "estimatedPhotoDimensionsMm": {
+    "keyPitch": 18,
+    "displayKey": 15.5,
+    "screen": 12.4,
+    "physicalKeyDiameter": 9.9,
+    "physicalKeyDishDepth": 0.45,
+    "cornerRadius": 6
+  },
+  "notes": [
+    "Overall size supplied by user; local feature dimensions estimated from supplied photos.",
+    "Kickstand modelled folded; underside port is simplified; retail logos omitted.",
+    "Screens are named screen-01..15 and key groups key-01..18; indices use public left-to-right order."
+  ]
+}

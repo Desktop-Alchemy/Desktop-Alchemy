@@ -1,0 +1,15 @@
+[package]
+name = "alchemy-audio-dock"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+alchemy-device-api = { path = "../device-api" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+schemars = "1"
+ts-rs = { version = "11", features = ["serde-json-impl"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+uuid = { version = "1", features = ["v4"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_Input", "Win32_Devices_HumanInterfaceDevice", "Win32_Devices_Properties", "Win32_Devices_DeviceAndDriverInstallation", "Win32_UI_WindowsAndMessaging", "Win32_System_LibraryLoader", "Win32_Storage_FileSystem", "Win32_Foundation", "Win32_System_Threading", "Win32_Security", "Win32_System_JobObjects", "Win32_System_Pipes", "Win32_System_IO", "Win32_System_Performance", "Win32_System_SystemInformation", "Win32_System_Power", "Win32_System_WindowsProgramming", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }

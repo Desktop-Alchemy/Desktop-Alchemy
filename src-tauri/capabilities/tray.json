@@ -1,0 +1,6 @@
+{
+  "identifier": "tray-panel",
+  "description": "Presentation-only tray panel event subscriptions",
+  "windows": ["tray-panel"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}

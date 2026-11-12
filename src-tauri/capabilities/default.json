@@ -1,0 +1,14 @@
+{
+  "identifier": "main",
+  "description": "Desktop Alchemy main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "dialog:allow-open",
+    "dialog:allow-save"
+  ]
+}

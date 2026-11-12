@@ -1,0 +1,49 @@
+# Dependencies and generated builds
+node_modules/
+dist/
+src-tauri/target/
+plugins/performance/sensors/bin/
+plugins/performance/sensors/obj/
+plugins/performance/sensors/publish/
+src-tauri/gen/schemas/
+src-tauri/icons/android/
+src-tauri/icons/ios/
+src-tauri/icons/*.icns
+
+# Local workspaces, captures, and generated packages
+artifacts/
+.local/
+.playwright-cli/
+output/
+*.m18plugin
+vendor/device-sdk/native/*.dll
+examples/counter/*.exe
+examples/icon-publisher/*.exe
+plugins/performance/*.exe
+
+# Machine-specific configuration and credentials
+.codex/
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local language-tool caches
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Operating system and IDE metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vs/
+*.user
+*.suo
+
+# Logs
+*.log

@@ -1,0 +1,19 @@
+{
+  "id": "example.icon-pack",
+  "name": "示例图标包",
+  "version": "1.0.0",
+  "api_version": 3,
+  "permissions": [],
+  "icons": [
+    {
+      "id": "play",
+      "name": "播放",
+      "path": "icons/play.png"
+    },
+    {
+      "id": "close",
+      "name": "关闭",
+      "path": "icons/close.png"
+    }
+  ]
+}

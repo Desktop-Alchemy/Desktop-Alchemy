@@ -1,0 +1,13 @@
+[package]
+name = "alchemy-device-simulator"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+alchemy-device-api = { path = "../device-api" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+ts-rs = { version = "11", features = ["serde-json-impl"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+uuid = { version = "1", features = ["v4"] }
