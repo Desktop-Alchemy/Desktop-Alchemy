@@ -40,6 +40,8 @@ cargo run --manifest-path src-tauri/Cargo.toml --bin m18-diagnose --features dia
 
 `--page-tour` cycles saved pages from the diagnostic root twice at approximately three-second intervals and returns to the original page. Copy configuration/assets to an independent `.local/` root if needed; do not write diagnostics into daily user data. USB capture requires [current descriptor identification](hardware/m18/USB-CAPTURE.md).
 
+`--render-page-transitions --data-dir output/page-transitions` generates four GIF previews using the production moving-viewport compositor, without opening the SDK or hardware. These previews establish image composition, not hardware frame rate. For physical slides, configure a direction/duration in an independent diagnostic workspace and use `--page-tour`. Check rows/columns and the final page, rapid navigation cancellation, GIF/metric resumption, explicit brightness control, another device's responsiveness, and normal exit during a slide. Compare SDK acceptance and USB submission separately from observed drawing; never infer smoothness from the software GIF.
+
 `--led-effects` uses temporary settings for solid, five animations, slow rainbow, and breathing brightness, then restores firmware default. It runs about 40–60 seconds and requires actual observation:
 
 ```powershell

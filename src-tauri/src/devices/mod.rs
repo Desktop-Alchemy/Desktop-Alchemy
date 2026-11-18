@@ -384,11 +384,19 @@ impl DeviceManager {
         adapter_id: &str,
         cursor: &mut usize,
     ) -> Option<(Arc<Core>, Vec<crate::core::Work>)> {
+        self.next_batch_with_widgets(adapter_id, cursor, |_| true)
+    }
+    pub(super) fn next_batch_with_widgets(
+        &self,
+        adapter_id: &str,
+        cursor: &mut usize,
+        allow_widgets: impl Fn(&Core) -> bool,
+    ) -> Option<(Arc<Core>, Vec<crate::core::Work>)> {
         let candidates = self.runtimes_for(adapter_id);
         for offset in 0..candidates.len() {
             let index = (*cursor + offset) % candidates.len();
             let core = candidates[index].core.clone();
-            let batch = core.pop_batch();
+            let batch = core.pop_batch_with_widgets(allow_widgets(&core));
             if !batch.is_empty() {
                 *cursor = (index + 1) % candidates.len();
                 return Some((core, batch));
@@ -743,6 +751,18 @@ impl DeviceManager {
             runtime.scenes.shutdown().await;
             if let Err(e) = runtime.core.reset_led_for_shutdown().await {
                 self.host.log("warning", e.to_string());
+            }
+            // Let a presenting page reach its destination before stopping the
+            // adapter. No new image operations are introduced during shutdown.
+            if tokio::time::timeout(std::time::Duration::from_secs(2), async {
+                while runtime.core.inner.lock().unwrap().presenting_pages != 0 {
+                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                }
+            })
+            .await
+            .is_err()
+            {
+                self.host.log("warning", "Page presentation did not settle before the shutdown deadline; cancelling unsent frames");
             }
             let _ = runtime.core.stop.send(true);
         }

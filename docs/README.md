@@ -22,7 +22,7 @@ These documents describe current contracts, reusable methods, and implementation
 
 | Document                                                | Topics                                                                           |
 | ------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| [Client guide](CLIENT.md)                               | Languages, devices, tray status, pages, library, extensions, backups |
+| [Client guide](CLIENT.md)                               | Languages, devices, tray status, page transitions, library, extensions, backups |
 | [Applications and launching](APPLICATIONS.md)           | AppsFolder discovery, typed targets, shortcuts, URI execution                    |
 | [Device SDK](DEVICE-SDK.md)                             | Pinned native dependencies, ABI, command mapping, receipts                       |
 | [Pages, assets, and configuration](PAGES-AND-ASSETS.md) | Content modes, text visibility/position, rendering, persistence, assets, backups |

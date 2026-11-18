@@ -95,13 +95,35 @@ impl Host for Bridge {
         }
     }
     fn next_batch(&self, cursor: &mut usize) -> Option<TransportBatch> {
-        let (core, work) = self.manager().ok()?.next_batch(&self.adapter_id, cursor)?;
+        // A device may present an admitted page over several adapter frames.
+        // Keep its coalesced widgets in Core until that page completes, while
+        // allowing explicit commands and other devices to continue normally.
+        let presenting: std::collections::BTreeSet<_> = self
+            .inflight
+            .lock()
+            .unwrap()
+            .values()
+            .filter(|(core, work)| {
+                work.first().is_some_and(|w| w.page_batch.is_some())
+                    && work.iter().all(|w| core.work_is_current(w))
+            })
+            .filter_map(|(core, _)| core.profile_id.clone())
+            .collect();
+        let (core, work) =
+            self.manager()
+                .ok()?
+                .next_batch_with_widgets(&self.adapter_id, cursor, |core| {
+                    core.profile_id
+                        .as_ref()
+                        .is_none_or(|id| !presenting.contains(id))
+                })?;
         let token = connection(&core)?;
         let id = uuid::Uuid::new_v4().to_string();
         let batch = TransportBatch {
             id: id.clone(),
             connection: token,
             page: work.first()?.page_batch.is_some(),
+            page_changed: work.first()?.page_changed,
             work: work
                 .iter()
                 .map(|w| TransportWork {
@@ -114,6 +136,9 @@ impl Host for Bridge {
                 })
                 .collect(),
         };
+        if batch.page {
+            core.inner.lock().unwrap().presenting_pages += 1;
+        }
         self.inflight.lock().unwrap().insert(id, (core, work));
         Some(batch)
     }
@@ -133,6 +158,10 @@ impl Host for Bridge {
     }
     fn complete(&self, id: &str, result: Result<()>) {
         if let Some((core, works)) = self.inflight.lock().unwrap().remove(id) {
+            if works.first().is_some_and(|w| w.page_batch.is_some()) {
+                let mut inner = core.inner.lock().unwrap();
+                inner.presenting_pages = inner.presenting_pages.saturating_sub(1);
+            }
             let count = works.iter().filter(|w| w.widget_frame.is_some()).count() as u64;
             if count > 0 {
                 let mut inner = core.inner.lock().unwrap();
@@ -142,25 +171,31 @@ impl Host for Bridge {
                     inner.widgets.failures += count
                 }
             }
+            let mut updates = Vec::new();
             for work in &works {
                 if let Some(id) = &work.receipt_id {
                     match &result {
                         Ok(()) => {
-                            core.receipt(id, "sent", "操作已发送");
-                            core.receipt(id, "acknowledged", "设备接口已接受此操作");
+                            updates.push((id.as_str(), "sent", "操作已发送".into()));
+                            updates.push((
+                                id.as_str(),
+                                "acknowledged",
+                                "设备接口已接受此操作".into(),
+                            ));
                         }
-                        Err(e) => core.receipt(
-                            id,
+                        Err(e) => updates.push((
+                            id.as_str(),
                             if core.work_is_current(work) {
                                 "failed"
                             } else {
                                 "cancelled"
                             },
                             e.to_string(),
-                        ),
+                        )),
                     }
                 }
             }
+            core.receipts(updates);
         }
     }
     fn connection_current(&self, token: &Connection) -> bool {
@@ -182,7 +217,12 @@ impl Host for Bridge {
             .module_data
             .clone())
     }
-    fn save_module_config(&self, token: &Connection, value: serde_json::Value) -> Result<()> {
+    fn save_module_config(
+        &self,
+        token: &Connection,
+        value: serde_json::Value,
+        expected: Option<serde_json::Value>,
+    ) -> Result<()> {
         let core = self.core(&token.device_id)?;
         let inner = core.inner.lock().unwrap();
         if inner.connection_epoch != token.epoch
@@ -208,7 +248,16 @@ impl Host for Bridge {
                 .find(|p| Some(&p.id) == core.profile_id.as_ref())
                 .context(alchemy_device_api::UiFailure::new("backend.b041", "未知设备配置"))?;
             if profile.config_version != 1 || profile.schema_version != adapter.config_version() {
-                bail!(alchemy_device_api::UiFailure::new("backend.b042", "配置版本不支持"))
+                bail!(alchemy_device_api::UiFailure::new(
+                    "backend.b042",
+                    "配置版本不支持"
+                ))
+            }
+            if expected
+                .as_ref()
+                .is_some_and(|expected| expected != &profile.module_data)
+            {
+                return Err(alchemy_device_api::ApiError::localized(alchemy_device_api::ErrorCode::StaleOperation, "errors.savedResourceChanged", "The saved resource changed. Read it again before applying this edit; your draft was retained.").into());
             }
             profile.module_data = value;
             Ok(())
@@ -293,6 +342,10 @@ impl Host for Bridge {
 impl Drop for Bridge {
     fn drop(&mut self) {
         for (_, (core, works)) in self.inflight.get_mut().unwrap().iter() {
+            if works.first().is_some_and(|w| w.page_batch.is_some()) {
+                let mut inner = core.inner.lock().unwrap();
+                inner.presenting_pages = inner.presenting_pages.saturating_sub(1);
+            }
             for work in works {
                 if let Some(id) = &work.receipt_id {
                     core.receipt(id, "cancelled", "设备后端已停止");

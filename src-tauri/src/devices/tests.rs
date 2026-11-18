@@ -27,9 +27,15 @@ impl Fixture {
             )
             .await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let a = self.manager.device(&a.id).unwrap();
         let b = self.manager.device(&b.id).unwrap();
+        // Wait for both admitted baselines, rather than racing asynchronous page
+        // preparation with a fixed delay under the parallel test harness.
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            while [&a, &b].iter().any(|core| !core.inner.lock().unwrap().widgets.page_ready) {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
         (a, b)
     }
 }
@@ -304,6 +310,14 @@ async fn widget_frames_and_source_cancellation_are_device_scoped() {
         inner.widgets.page_ready = true;
         inner.snapshot.config.pages[0].keys[0].widget = Some(binding.clone());
     }
+    a.activate_from(&a.snapshot().active_page, ActivationSource::Refresh)
+        .await
+        .unwrap();
+    let host = f.manager.adapter_host(m18::ID);
+    let mut cursor = 0;
+    let page = host.api.next_batch(&mut cursor).unwrap();
+    assert!(page.page);
+    assert_eq!(a.inner.lock().unwrap().presenting_pages, 1);
     f.manager
         .host
         .publish_widget(
@@ -322,8 +336,32 @@ async fn widget_frames_and_source_cancellation_are_device_scoped() {
         )
         .unwrap();
     f.manager.host.refresh_widgets().unwrap();
+    let b_work = b
+        .inner
+        .lock()
+        .unwrap()
+        .widgets
+        .pending
+        .values()
+        .next()
+        .unwrap()
+        .clone();
+    let background = host.api.next_batch(&mut cursor).unwrap();
+    assert_eq!(background.connection.device_id, b_work.device_id);
+    host.api.complete(&background.id, Ok(()));
+    assert!(host.api.next_batch(&mut cursor).is_none()); // A's metrics stay coalesced in Core.
+    assert_eq!(a.inner.lock().unwrap().widgets.pending.len(), 1);
+    a.enqueue(HardwareCommand::Firmware, None).unwrap();
+    let explicit = host.api.next_batch(&mut cursor).unwrap();
+    assert!(matches!(
+        explicit.work[0].command,
+        HardwareCommand::Firmware
+    ));
+    host.api.complete(&explicit.id, Ok(()));
+    assert!(a.snapshot().receipts.iter().any(|r| r.status == "queued"));
+    host.api.complete(&page.id, Ok(()));
+    assert_eq!(a.inner.lock().unwrap().presenting_pages, 0);
     let a_work = a.pop_batch().remove(0);
-    let b_work = b.pop_batch().remove(0);
     assert_ne!(a_work.device_id, b_work.device_id);
     assert!(a_work.widget_frame.is_some() && b_work.widget_frame.is_some());
     a.cancel_owner(&manifest.id);

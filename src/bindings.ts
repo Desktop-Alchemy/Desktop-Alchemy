@@ -114,3 +114,6 @@ export type AudioDockDeviceInfo = { model: string | null, serial: string | null,
 export type AudioDockSettings = { prompt_tone: boolean | null, prompt_volume: number | null, push_to_talk: boolean | null, noise_suppression: AudioDockNoiseSuppression | null, active_equalizer: number | null, equalizer_presets: Array<AudioDockEqualizerPreset>, free_equalizer_slots: Array<number>, };
 export type AudioDockState = { ui_message?: UiMessage, device_id: string, connection: AudioDockConnection, settings: AudioDockSettings, info: AudioDockDeviceInfo, error: string | null, };
 export type AudioDockSettingsUpdate = { "type": "prompt_tone", enabled: boolean, } | { "type": "prompt_volume", value: number, } | { "type": "push_to_talk", enabled: boolean, } | { "type": "noise_suppression", mode: AudioDockNoiseSuppression, } | { "type": "select_equalizer", id: number, } | { "type": "save_equalizer", id: number | null, name: string, gains: [number, number, number, number, number], } | { "type": "delete_equalizer", id: number, name: string, };
+export type M18TransitionMode = "none" | "fade_in" | "slide_left" | "slide_right" | "slide_up" | "slide_down" | "slide_random";
+export type M18PageTransition = { mode: M18TransitionMode, duration_ms: number, };
+export type M18TransitionEdit = { settings: M18PageTransition, expected: M18PageTransition, };

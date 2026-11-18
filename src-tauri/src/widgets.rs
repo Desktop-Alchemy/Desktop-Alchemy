@@ -540,6 +540,7 @@ impl Core {
                 source: Some(binding.plugin_id.clone()),
                 source_epoch,
                 page_batch: None,
+                page_changed: false,
                 receipt_id: None,
                 device_path: frame.device_path.clone(),
                 connection_epoch: self.inner.lock().unwrap().connection_epoch,

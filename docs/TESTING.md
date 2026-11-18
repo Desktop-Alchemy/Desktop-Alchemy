@@ -64,6 +64,7 @@ Start a fresh Vite server for mock scripts that dynamically import source module
 | `scripts/content-ui-check.js`         | Base content modes, retained text, positions, GIF controls, failed drafts, isolated 2D/3D preview requests       |
 | `scripts/mcp-management-ui-check.js`  | Desktop/MCP edit conflicts, retained drafts, safe reload confirmation, subsequent saves                         |
 | `scripts/multi-device-ui-check.js`    | Device switching, failed-save drafts, target isolation, module-owned test pages                                 |
+| `scripts/tray-transition-ui-check.js` | Tray counts/status updates, duplicate names, bounded scrolling; per-profile M18 transition edits, failed saves, late responses, offline controls |
 | `scripts/audio-dock-ui-check.js`      | Settings synchronization, equalizer drafts, app selection, input bindings                                       |
 | `scripts/platform-native-ui-check.js` | Isolated real Tauri persistence, offline configurations, page templates, invalid targets                        |
 | `scripts/i18n-ui-check.js`            | Message compilation, plural branches, draft retention, failed language saves, narrow English layout             |

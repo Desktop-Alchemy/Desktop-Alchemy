@@ -1,8 +1,23 @@
 {
   "ui": {
+    "transitionSlide": "滑动",
+    "transitionDirection": "滑动方向",
+    "transitionSlideRandom": "随机",
+    "transitionSlideLeft": "向左",
+    "transitionSlideRight": "向右",
+    "transitionSlideUp": "向上",
+    "transitionSlideDown": "向下",
+    "pageSlideHint": "移动整个格子画布切换页面，建议使用 500–1000 毫秒。",
     "trayShow": "显示窗口",
     "traySettings": "应用设置",
+    "readLatestSettings": "读取最新设置",
     "trayConnectedCount": "已连接 {connected} / {total} 台",
+    "pageTransition": "页面切换动画",
+    "transitionNone": "关闭",
+    "transitionFadeIn": "渐显",
+    "transitionDuration": "动画时长",
+    "pageTransitionHint": "切换页面时 M18 屏幕渐显至设定亮度。",
+    "saveTransition": "保存切换动画",
     "reloadSavedDraftsDescription": "放弃此设备配置中尚未保存的页面、按键与场景编辑，载入最新保存的配置？",
     "reloadSavedDrafts": "重新载入已保存配置",
     "devices": "设备",
@@ -830,6 +845,7 @@
     }
   },
   "errors": {
+    "pageTransitionDuration": "页面渐显时长须为 150–1000 毫秒。",
     "savedResourceChanged": "已保存配置已被其他操作更新。草稿已保留，请重新载入已保存配置或重新应用编辑。",
     "mainWindowOnly": "只能在主窗口中更改界面语言。",
     "trayCommandDenied": "托盘面板不允许执行此操作。",

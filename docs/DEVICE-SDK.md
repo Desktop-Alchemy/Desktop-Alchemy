@@ -69,6 +69,8 @@ Render and encode the entire page before any submission. Submit background, 15 k
 
 After preparation, revalidate page/source generations and device path. Stopping MCP/plugins cancels prepared or dequeued work that has not been submitted. Reject an oversized page or preparation failure before any partial upload. Work accepted into the SDK cannot be guaranteed retractable.
 
+Optional M18 slide transitions retain the admitted page receipt until the destination is submitted. Intermediate complete pages are pre-encoded and scheduled by the same owner, each with one refresh and a fresh batch-generation check. Coalesced widget output waits for that destination while explicit commands remain available. See [M18 page transitions](hardware/m18/README.md#page-transitions) for timing, budgets, cancellation, and evidence limits.
+
 The SDK return belongs to the current work item. Nonzero error codes are not success; idle read timeouts only mean no input is available.
 
 | State               | Meaning                                               |

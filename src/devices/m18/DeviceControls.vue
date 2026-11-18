@@ -5,6 +5,7 @@ import { computed } from "vue";
 import { useDeviceContext } from "../context";
 import type { LedMode } from "../../bindings";
 import AppSelect from "../../components/AppSelect.vue";
+import PageTransitionSettings from "./PageTransitionSettings.vue";
 
 const w = useDeviceContext();
 const disabled = (feature: string) =>
@@ -204,5 +205,6 @@ function setLedMode(mode: LedMode) {
         {{ t("ui.useSelectedStaticColor") }}
       </button>
     </div>
+    <PageTransitionSettings />
   </section>
 </template>

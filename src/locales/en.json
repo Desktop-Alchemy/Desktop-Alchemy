@@ -1,8 +1,23 @@
 {
   "ui": {
+    "transitionSlide": "Slide",
+    "transitionDirection": "Slide direction",
+    "transitionSlideRandom": "Random",
+    "transitionSlideLeft": "Left",
+    "transitionSlideRight": "Right",
+    "transitionSlideUp": "Up",
+    "transitionSlideDown": "Down",
+    "pageSlideHint": "Move the entire grid between pages. Try 500–1000 ms for a gentler slide.",
     "trayShow": "Show",
     "traySettings": "Settings",
+    "readLatestSettings": "Read latest settings",
     "trayConnectedCount": "{connected} of {total} connected",
+    "pageTransition": "Page transition",
+    "transitionNone": "None",
+    "transitionFadeIn": "Fade in",
+    "transitionDuration": "Duration",
+    "pageTransitionHint": "Fade in the M18 screen when switching pages. Brightness returns to your selected level.",
+    "saveTransition": "Save transition",
     "reloadSavedDraftsDescription": "Discard this profile’s unsaved page, input and scene edits and load the latest saved configuration?",
     "reloadSavedDrafts": "Reload saved configuration",
     "devices": "Devices",
@@ -830,6 +845,7 @@
     }
   },
   "errors": {
+    "pageTransitionDuration": "Page fade duration must be between 150 and 1000 milliseconds.",
     "savedResourceChanged": "Saved configuration changed in another operation. Your draft was retained; reload the saved configuration or reapply your edits.",
     "mainWindowOnly": "Only the main window can change the UI language.",
     "trayCommandDenied": "This operation is not available in the tray panel.",

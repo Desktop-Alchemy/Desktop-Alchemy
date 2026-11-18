@@ -4,6 +4,8 @@ use std::collections::BTreeMap;
 #[cfg(windows)]
 pub mod native_sdk;
 pub mod sdk;
+pub mod slide;
+pub mod transition;
 pub const ID: &str = "mirabox.m18";
 pub fn layout() -> DeviceLayout {
     DeviceLayout {
@@ -100,6 +102,55 @@ pub fn capabilities(firmware: &str) -> DeviceCapabilities {
 
 pub struct Adapter;
 impl DeviceAdapter for Adapter {
+    fn public_types(&self) -> Vec<String> {
+        use ts_rs::TS;
+        vec![
+            transition::M18TransitionMode::decl(),
+            transition::M18PageTransition::decl(),
+            transition::M18TransitionEdit::decl(),
+        ]
+    }
+    fn operations(&self) -> &'static [&'static str] {
+        &["page_transition.get", "page_transition.set"]
+    }
+    fn validate_module(&self, data: &serde_json::Value) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            data.is_object(),
+            "M18 module configuration must be an object"
+        );
+        transition::M18PageTransition::from_module(data)?;
+        Ok(())
+    }
+    fn request<'a>(
+        &'a self,
+        host: AdapterHost,
+        connection: Connection,
+        operation: String,
+        payload: serde_json::Value,
+    ) -> ServiceFuture<'a> {
+        Box::pin(async move {
+            let mut data = host.api.module_config(&connection)?;
+            if operation == "page_transition.set" {
+                let edit: transition::M18TransitionEdit = serde_json::from_value(payload)?;
+                edit.settings.validate()?;
+                if edit.expected != transition::M18PageTransition::from_module(&data)? {
+                    return Err(ApiError::localized(ErrorCode::StaleOperation, "errors.savedResourceChanged", "The saved resource changed. Read it again before applying this edit; your draft was retained.").into());
+                }
+                let expected = data.clone();
+                data["page_transition"] = serde_json::to_value(&edit.settings)?;
+                host.api
+                    .save_module_config(&connection, data, Some(expected))?;
+                return Ok(serde_json::to_value(edit.settings)?);
+            }
+            anyhow::ensure!(
+                operation == "page_transition.get",
+                "Unsupported M18 operation"
+            );
+            Ok(serde_json::to_value(
+                transition::M18PageTransition::from_module(&data)?,
+            )?)
+        })
+    }
     fn id(&self) -> &'static str {
         ID
     }

@@ -166,6 +166,95 @@ async fn tray_projects_all_device_states_instead_of_the_global_core() {
     assert_eq!(a.snapshot().connection, "disconnected");
 }
 
+#[cfg(feature = "device-m18")]
+#[tokio::test]
+async fn m18_transition_settings_persist_per_profile_and_failure_retains_saved_values() {
+    let fixture = Fixture::new();
+    let manager = DeviceManager::new(Core::new(fixture.0.clone()).unwrap()).unwrap();
+    let mut d = descriptor(alchemy_m18::ID, "m18-one");
+    d.model = "M18".into();
+    let host = manager.adapter_host(alchemy_m18::ID);
+    host.api.discover(vec![d.clone()]).unwrap();
+    let token = host.api.connected(d, "m18-path".into()).unwrap();
+    let set = serde_json::json!({"mode":"slide_left","duration_ms":450});
+    let initial = serde_json::json!({"mode":"none","duration_ms":300});
+    let edit = serde_json::json!({"settings":set,"expected":initial});
+    manager
+        .module_request(&token.device_id, "page_transition.set".into(), edit.clone())
+        .await
+        .unwrap();
+    assert_eq!(
+        manager
+            .module_request(
+                &token.device_id,
+                "page_transition.get".into(),
+                serde_json::Value::Null
+            )
+            .await
+            .unwrap(),
+        set
+    );
+    assert!(manager
+        .module_request(
+            &token.device_id,
+            "page_transition.set".into(),
+            serde_json::json!({"settings":{"mode":"fade_in","duration_ms":0},"expected":set})
+        )
+        .await
+        .is_err());
+    assert_eq!(
+        host.api.module_config(&token).unwrap()["page_transition"],
+        set
+    );
+    std::fs::create_dir(fixture.0.join("config.json.tmp")).unwrap();
+    assert!(manager
+        .module_request(
+            &token.device_id,
+            "page_transition.set".into(),
+            serde_json::json!({"settings":initial,"expected":set})
+        )
+        .await
+        .is_err());
+    std::fs::remove_dir(fixture.0.join("config.json.tmp")).unwrap();
+    assert_eq!(
+        host.api.module_config(&token).unwrap()["page_transition"],
+        set
+    );
+    let other = descriptor(alchemy_m18::ID, "m18-two");
+    host.api
+        .discover(vec![descriptor(alchemy_m18::ID, "m18-one"), other.clone()])
+        .unwrap();
+    let other_token = host.api.connected(other, "other-m18-path".into()).unwrap();
+    assert_eq!(
+        manager
+            .module_request(
+                &other_token.device_id,
+                "page_transition.get".into(),
+                serde_json::Value::Null
+            )
+            .await
+            .unwrap()["mode"],
+        "none"
+    );
+    assert!(manager
+        .module_request(&token.device_id, "page_transition.set".into(), edit.clone())
+        .await
+        .is_err());
+    assert_eq!(
+        host.api.module_config(&token).unwrap()["page_transition"],
+        set
+    );
+    // Reopen the workspace to verify disk persistence rather than a runtime cache.
+    let reopened = DeviceManager::new(Core::new(fixture.0.clone()).unwrap()).unwrap();
+    let workspace = storage::load_workspace(&reopened.host.root).unwrap();
+    assert_eq!(workspace.profiles[0].module_data["page_transition"], set);
+    host.api.disconnected(&token);
+    assert!(manager
+        .module_request(&token.device_id, "page_transition.set".into(), edit)
+        .await
+        .is_err());
+}
+
 #[test]
 fn synchronous_startup_and_native_callbacks_use_the_host_runtime() {
     assert!(tokio::runtime::Handle::try_current().is_err());
@@ -588,24 +677,29 @@ async fn module_configuration_uses_the_same_failure_and_session_guards() {
     let (_, host, token) = connect(&manager, "test.a", "unit");
     assert!(host
         .api
-        .save_module_config(&token, serde_json::json!(7))
+        .save_module_config(&token, serde_json::json!(7), None)
         .is_err());
     let before = host.api.module_config(&token).unwrap();
     std::fs::create_dir(fixture.0.join("config.json.tmp")).unwrap();
     assert!(host
         .api
-        .save_module_config(&token, serde_json::json!({"value":1}))
+        .save_module_config(&token, serde_json::json!({"value":1}), None)
         .is_err());
     assert_eq!(host.api.module_config(&token).unwrap(), before);
     std::fs::remove_dir(fixture.0.join("config.json.tmp")).unwrap();
     host.api
-        .save_module_config(&token, serde_json::json!({"value":1}))
+        .save_module_config(&token, serde_json::json!({"value":1}), None)
         .unwrap();
+    assert_eq!(host.api.module_config(&token).unwrap()["value"], 1);
+    assert!(host
+        .api
+        .save_module_config(&token, serde_json::json!({"value":2}), Some(before))
+        .is_err());
     assert_eq!(host.api.module_config(&token).unwrap()["value"], 1);
     host.api.disconnected(&token);
     assert!(host
         .api
-        .save_module_config(&token, serde_json::json!({"value":2}))
+        .save_module_config(&token, serde_json::json!({"value":2}), None)
         .is_err());
 }
 

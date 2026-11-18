@@ -28,6 +28,8 @@ pub struct TransportBatch {
     pub id: String,
     pub connection: Connection,
     pub page: bool,
+    /// Intent to switch between distinct pages, excluding refresh/reconnect.
+    pub page_changed: bool,
     pub work: Vec<TransportWork>,
 }
 #[derive(Clone)]
@@ -72,7 +74,12 @@ pub trait Host: Send + Sync {
     fn connection_current(&self, connection: &Connection) -> bool;
     fn retry_requests(&self) -> Vec<String>;
     fn module_config(&self, connection: &Connection) -> Result<Value>;
-    fn save_module_config(&self, connection: &Connection, value: Value) -> Result<()>;
+    fn save_module_config(
+        &self,
+        connection: &Connection,
+        value: Value,
+        expected: Option<Value>,
+    ) -> Result<()>;
     fn tick(&self);
     fn log(&self, level: &str, message: String);
     fn state(&self, connection: &Connection, value: Value) -> Result<()>;

@@ -25,6 +25,9 @@ async fn main() -> anyhow::Result<()> {
     if args.iter().any(|s| s == "--render-widgets") {
         return render_widget_examples(&root);
     }
+    if args.iter().any(|s| s == "--render-page-transitions") {
+        return render_page_transitions(&root);
+    }
     if args.iter().any(|s| s == "--managed-devices") {
         return managed_devices(root, args.iter().any(|s| s == "--exercise"), seconds).await;
     }
@@ -140,6 +143,76 @@ async fn main() -> anyhow::Result<()> {
     println!("Report: {}", c.export_report()?.display());
     let _ = c.stop.send(true);
     let _ = tokio::time::timeout(Duration::from_secs(4), task).await;
+    Ok(())
+}
+
+/// Hardware-free previews use the same moving viewport as the M18 adapter.
+fn render_page_transitions(root: &std::path::Path) -> anyhow::Result<()> {
+    use desktop_alchemy_core::devices::m18::{slide, transition::M18TransitionMode};
+    use image::{imageops, Rgb, RgbImage};
+    anyhow::ensure!(
+        !root.join("config.json").exists(),
+        "Use an independent preview output directory"
+    );
+    std::fs::create_dir_all(root)?;
+    let mut pages = Vec::new();
+    for (letter, colors) in [
+        ("A", ["#166534", "#15803D", "#047857", "#0F766E", "#0E7490"]),
+        ("B", ["#9D174D", "#BE185D", "#BE123C", "#B91C1C", "#C2410C"]),
+    ] {
+        let mut canvas = RgbImage::new(slide::GRID_WIDTH, slide::GRID_HEIGHT);
+        for mut key in desktop_alchemy_core::devices::m18::new_page(letter)
+            .keys
+            .into_iter()
+            .filter(|key| key.key <= 15)
+        {
+            key.text = format!("{letter}{:02}", key.key);
+            key.background = colors[usize::from((key.key - 1) % 5)].into();
+            let tile = image::open(render::key_sized(root, &key, 64, 64)?)?.to_rgb8();
+            imageops::replace(
+                &mut canvas,
+                &tile,
+                i64::from((key.key - 1) % 5) * 64,
+                i64::from((key.key - 1) / 5) * 64,
+            );
+        }
+        pages.push(canvas);
+    }
+    for (name, mode) in [
+        ("slide-left", M18TransitionMode::SlideLeft),
+        ("slide-right", M18TransitionMode::SlideRight),
+        ("slide-up", M18TransitionMode::SlideUp),
+        ("slide-down", M18TransitionMode::SlideDown),
+    ] {
+        let mut encoder = image::codecs::gif::GifEncoder::new(std::fs::File::create(
+            root.join(format!("{name}.gif")),
+        )?);
+        encoder.set_repeat(image::codecs::gif::Repeat::Infinite)?;
+        for step in 0..=16 {
+            let viewport = slide::viewport(&pages[0], &pages[1], mode, f64::from(step) / 16.0)?;
+            // Gaps illustrate physical keys; pixel motion is generated on the
+            // continuous logical grid before it is split into display tiles.
+            let mut display = RgbImage::from_pixel(344, 204, Rgb([24, 26, 31]));
+            for key in 0..15 {
+                let tile = imageops::crop_imm(&viewport, (key % 5) * 64, (key / 5) * 64, 64, 64)
+                    .to_image();
+                imageops::replace(
+                    &mut display,
+                    &tile,
+                    i64::from(key % 5) * 70,
+                    i64::from(key / 5) * 70,
+                );
+            }
+            let delay = if step == 0 || step == 16 { 650 } else { 50 };
+            encoder.encode_frame(image::Frame::from_parts(
+                image::DynamicImage::ImageRgb8(display).to_rgba8(),
+                0,
+                0,
+                image::Delay::from_numer_denom_ms(delay, 1),
+            ))?;
+        }
+    }
+    println!("Rendered four software slide previews; no SDK or device was opened.");
     Ok(())
 }
 

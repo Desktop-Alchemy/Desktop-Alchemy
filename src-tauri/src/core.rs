@@ -30,6 +30,7 @@ pub struct Work {
     pub source_epoch: u64,
     /// An already-rendered page, sent contiguously in one scheduler turn.
     pub page_batch: Option<u64>,
+    pub page_changed: bool,
     pub receipt_id: Option<String>,
     pub device_id: String,
     pub device_path: String,
@@ -42,10 +43,12 @@ type ImageFrames = BTreeMap<u8, Arc<Vec<u8>>>;
 
 #[derive(Default)]
 struct PageImages {
+    page_changed: bool,
     frames: ImageFrames,
     revision: Option<u64>,
 }
 pub struct Inner {
+    pub presenting_pages: usize,
     pub module_state: serde_json::Value,
     pub analog_armed: BTreeMap<String, bool>,
     pub scene_receipts: std::collections::BTreeSet<String>,
@@ -231,6 +234,7 @@ impl Core {
             services,
             action_errors,
             inner: Mutex::new(Inner {
+                presenting_pages: 0,
                 module_state: serde_json::Value::Null,
                 analog_armed: Default::default(),
                 scene_receipts: Default::default(),
@@ -566,35 +570,54 @@ impl Core {
         self.emit();
     }
     pub fn receipt(&self, id: &str, status: &str, detail: impl Into<String>) {
-        let mut i = self.inner.lock().unwrap();
-        let detail = detail.into();
-        if matches!(status, "acknowledged" | "failed" | "cancelled") && i.scene_receipts.remove(id)
-        {
-            if status == "cancelled" {
-                i.scene_repaint = true;
-            }
-            if status == "failed" {
-                i.scene_frame_error = Some(detail.clone());
-            }
+        self.receipts(vec![(id, status, detail.into())]);
+    }
+    /// Publish one transport completion atomically, with one log append and
+    /// snapshot emission instead of per-command disk opens and broadcasts.
+    pub fn receipts(&self, updates: Vec<(&str, &str, String)>) {
+        if updates.is_empty() {
+            return;
         }
-        let mut updated = None;
-        if let Some(r) = i.snapshot.receipts.iter_mut().find(|r| r.id == id) {
-            r.status = status.into();
-            r.at = now();
-            r.detail = detail;
-            updated = Some(r.clone());
+        let mut i = self.inner.lock().unwrap();
+        let mut updated = Vec::new();
+        for (id, status, detail) in updates {
+            if matches!(status, "acknowledged" | "failed" | "cancelled")
+                && i.scene_receipts.remove(id)
+            {
+                if status == "cancelled" {
+                    i.scene_repaint = true;
+                }
+                if status == "failed" {
+                    i.scene_frame_error = Some(detail.clone());
+                }
+            }
+            if let Some(receipt) = i
+                .snapshot
+                .receipts
+                .iter_mut()
+                .find(|receipt| receipt.id == id)
+            {
+                receipt.status = status.into();
+                receipt.at = now();
+                receipt.detail = detail;
+                updated.push(receipt.clone());
+            }
         }
         drop(i);
-        if let Some(r) = updated {
+        if !updated.is_empty() {
             use std::io::Write;
-            if let Ok(mut f) = std::fs::OpenOptions::new()
+            if let Ok(mut file) = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
                 .open(self.root.join("commands.jsonl"))
             {
-                if let Ok(line) = serde_json::to_string(&r) {
-                    let _ = f.write_all(format!("{line}\n").as_bytes());
+                let mut lines = Vec::new();
+                for receipt in updated {
+                    if serde_json::to_writer(&mut lines, &receipt).is_ok() {
+                        lines.push(b'\n');
+                    }
                 }
+                let _ = file.write_all(&lines);
             }
         }
         self.emit();
@@ -874,6 +897,7 @@ impl Core {
             source: source.map(str::to_owned),
             source_epoch,
             page_batch,
+            page_changed: false,
             receipt_id: Some(receipt_id.clone()),
             connection_epoch: i.connection_epoch,
             device_path: i.paths.get(&id).cloned().unwrap_or_default(),
@@ -1022,6 +1046,7 @@ impl Core {
                 Some(epoch),
             )?;
             if let Some(work) = i.queue.back_mut() {
+                work.page_changed = images.page_changed;
                 work.icon_revision = images.revision;
                 if let HardwareCommand::KeyData { key, .. } = &work.command {
                     work.image_frame = images.frames.get(key).cloned();
@@ -1043,7 +1068,10 @@ impl Core {
     /// Dequeue a complete admitted page. External writes keep normal pacing and
     /// cannot be pulled into a page merely because they have the same epoch.
     pub fn pop_batch(&self) -> Vec<Work> {
-        let Some(first) = self.pop() else {
+        self.pop_batch_with_widgets(true)
+    }
+    pub fn pop_batch_with_widgets(&self, allow_widgets: bool) -> Vec<Work> {
+        let Some(first) = self.pop_with_widgets(allow_widgets) else {
             return vec![];
         };
         let batch = first.page_batch;
@@ -1073,6 +1101,9 @@ impl Core {
             })
     }
     pub fn pop(&self) -> Option<Work> {
+        self.pop_with_widgets(true)
+    }
+    fn pop_with_widgets(&self, allow_widgets: bool) -> Option<Work> {
         let mut i = self.inner.lock().unwrap();
         while let Some(w) = i.queue.pop_front() {
             if w.epoch.is_none_or(|e| e == i.epoch) && i.paths.contains_key(&w.device_id) {
@@ -1088,7 +1119,11 @@ impl Core {
                 r.detail = "旧页面命令已取消".into();
             }
         }
-        while let Some((_, work)) = i.widgets.pending.pop_first() {
+        while let Some((_, work)) = if allow_widgets {
+            i.widgets.pending.pop_first()
+        } else {
+            None
+        } {
             if crate::widgets::frame_is_current(&i, &work) && work.epoch == Some(i.epoch) {
                 return Some(work);
             }
@@ -1122,6 +1157,7 @@ impl Core {
             source: None,
             source_epoch: 0,
             page_batch: None,
+            page_changed: false,
             receipt_id: None,
             connection_epoch: i.connection_epoch,
             device_path: i.paths.get(&device_id).cloned().unwrap_or_default(),
@@ -1452,7 +1488,7 @@ impl Core {
             )
             .into());
         }
-        let (page, epoch, guard) = {
+        let (page, epoch, guard, page_changed) = {
             let mut i = self.inner.lock().unwrap();
             let p = i
                 .snapshot
@@ -1467,6 +1503,11 @@ impl Core {
                         "页面不存在",
                     )
                 })?;
+            let page_changed = id != i.snapshot.active_page
+                && !matches!(
+                    source,
+                    ActivationSource::Refresh | ActivationSource::Reconnect
+                );
             let guard = if let ActivationSource::Scene {
                 generation,
                 source_epoch,
@@ -1532,7 +1573,7 @@ impl Core {
             if guard.is_none() || i.snapshot.selected_device.is_none() {
                 i.snapshot.active_page = id.into();
             }
-            (p, e, guard)
+            (p, e, guard, page_changed)
         };
         let event = DeviceEvent {
             input: None,
@@ -1630,7 +1671,11 @@ impl Core {
             settings,
             guard,
             Some(id),
-            PageImages { frames, revision },
+            PageImages {
+                frames,
+                revision,
+                page_changed,
+            },
         )? {
             bail!(crate::scenes::ActivationCancelled);
         }
@@ -2493,6 +2538,61 @@ mod tests {
             matches!(&c.inner.lock().unwrap().queue.back().unwrap().command,HardwareCommand::LedColor{color} if color=="#123456")
         );
     }
+    #[tokio::test]
+    async fn only_distinct_page_navigation_requests_a_transition() {
+        let c = connected();
+        let home = c.snapshot().active_page;
+        let mut next = c.snapshot().config.pages[0].clone();
+        next.id = "transition-next".into();
+        let mut pages = c.snapshot().config.pages;
+        pages.push(next.clone());
+        c.update_pages(pages).unwrap();
+        for (id, source, changed) in [
+            (next.id.as_str(), ActivationSource::Manual, true),
+            (next.id.as_str(), ActivationSource::Manual, false),
+            (home.as_str(), ActivationSource::Reconnect, false),
+            (next.id.as_str(), ActivationSource::Refresh, false),
+            (home.as_str(), ActivationSource::External, true),
+        ] {
+            c.activate_from(id, source).await.unwrap();
+            let batch = c.pop_batch();
+            assert!(!batch.is_empty());
+            assert!(batch.iter().all(|w| w.page_changed == changed));
+        }
+    }
+    #[test]
+    fn one_batch_completion_retains_receipt_history_and_publishes_one_snapshot() {
+        let c = connected();
+        let a = c.enqueue(HardwareCommand::Firmware, None).unwrap();
+        let b = c.enqueue(HardwareCommand::Firmware, None).unwrap();
+        c.inner
+            .lock()
+            .unwrap()
+            .scene_receipts
+            .extend([a.clone(), b.clone()]);
+        let mut changed = c.changed.subscribe();
+        c.receipts(vec![
+            (&a, "sent", "sent a".into()),
+            (&a, "acknowledged", "accepted a".into()),
+            (&b, "sent", "sent b".into()),
+            (&b, "acknowledged", "accepted b".into()),
+        ]);
+        let snapshot = changed.try_recv().unwrap();
+        assert!(snapshot
+            .receipts
+            .iter()
+            .filter(|r| r.id == a || r.id == b)
+            .all(|r| r.status == "acknowledged"));
+        assert!(changed.try_recv().is_err());
+        assert!(c.inner.lock().unwrap().scene_receipts.is_empty());
+        let history: Vec<CommandReceipt> = std::fs::read_to_string(c.root.join("commands.jsonl"))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str(line).unwrap())
+            .collect();
+        let status: Vec<_> = history.iter().map(|r| r.status.as_str()).collect();
+        assert_eq!(status, ["sent", "acknowledged", "sent", "acknowledged"]);
+    }
     #[test]
     fn bulk_overrides_are_stored_per_key() {
         let c = connected();
@@ -2628,6 +2728,7 @@ mod tests {
         assert!(c.inner.lock().unwrap().queue.is_empty());
         let megabyte = Arc::new(vec![0; 1024 * 1024]);
         let images = PageImages {
+            page_changed: false,
             frames: (1..=65).map(|key| (key, megabyte.clone())).collect(),
             revision: None,
         };

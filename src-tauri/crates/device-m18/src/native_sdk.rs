@@ -19,6 +19,45 @@ use std::{
 };
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
+mod slide_transport;
+
+// The receipt stays in the owning host while an animated page is presenting.
+// Every exit path (including a worker error) terminates it, without a leaked batch.
+struct SlideReceipt {
+    id: String,
+    api: Arc<dyn Host>,
+}
+impl Drop for SlideReceipt {
+    fn drop(&mut self) {
+        self.api.complete(
+            &self.id,
+            Err(anyhow::anyhow!(alchemy_device_api::UiFailure::new(
+                "backend.b311",
+                "操作已过期"
+            ))),
+        );
+    }
+}
+struct PendingSlide {
+    receipt: SlideReceipt,
+    presentation: slide_transport::Presentation,
+    timing: SlideTiming,
+}
+#[derive(Default)]
+struct SlideTiming {
+    frames: u32,
+    bytes: usize,
+    last_ms: u128,
+    max_ms: u128,
+}
+impl SlideTiming {
+    fn accepted(&mut self, bytes: usize, elapsed: Duration) {
+        self.frames += 1;
+        self.bytes += bytes;
+        self.last_ms = elapsed.as_millis();
+        self.max_ms = self.max_ms.max(self.last_ms);
+    }
+}
 
 type Handle = *mut c_void;
 type Simple = unsafe extern "C" fn(Handle) -> u32;
@@ -190,6 +229,9 @@ impl Api {
                         product: info.product,
                         gifs: BTreeMap::new(),
                         gif_running: false,
+                        fade: None,
+                        slide: None,
+                        display: Default::default(),
                         heartbeat: Instant::now(),
                     })
                 })();
@@ -262,6 +304,9 @@ struct Device<'a> {
     product: u16,
     gifs: BTreeMap<u8, Animation>,
     gif_running: bool,
+    fade: Option<crate::transition::FadeIn>,
+    slide: Option<PendingSlide>,
+    display: slide_transport::DisplayCache,
     heartbeat: Instant,
 }
 type ReadFn = unsafe extern "C" fn(Handle, *mut u8, *mut usize, i32) -> u32;
@@ -397,7 +442,10 @@ fn prepare(root: &Path, work: &TransportWork, cancel: &CancellationToken) -> Res
             let mut bytes = 0;
             for frame in decoder.into_frames() {
                 if cancel.is_cancelled() {
-                    bail!(alchemy_device_api::UiFailure::new("backend.b313", "设备会话已停止"))
+                    bail!(alchemy_device_api::UiFailure::new(
+                        "backend.b313",
+                        "设备会话已停止"
+                    ))
                 }
                 let frame = frame?;
                 let (num, den) = frame.delay().numer_denom_ms();
@@ -410,12 +458,18 @@ fn prepare(root: &Path, work: &TransportWork, cancel: &CancellationToken) -> Res
                 let data = encode_jpeg(&img)?;
                 bytes += data.len();
                 if frames.len() >= 1000 || bytes > 32 * 1024 * 1024 {
-                    bail!(alchemy_device_api::UiFailure::new("backend.b314", "GIF 解码结果超过 1000 帧或 32 MiB"))
+                    bail!(alchemy_device_api::UiFailure::new(
+                        "backend.b314",
+                        "GIF 解码结果超过 1000 帧或 32 MiB"
+                    ))
                 }
                 frames.push((data, delay));
             }
             if frames.is_empty() {
-                bail!(alchemy_device_api::UiFailure::new("backend.b315", "GIF 没有可显示帧"))
+                bail!(alchemy_device_api::UiFailure::new(
+                    "backend.b315",
+                    "GIF 没有可显示帧"
+                ))
             }
             image = frames[0].0.clone();
             animation = Some(Animation {
@@ -439,10 +493,15 @@ impl Device<'_> {
         let raw = self.handle.raw;
         let dirty = match &p.command {
             ScreenBrightness { value } => {
+                // An explicit brightness operation supersedes a running transition.
+                self.fade = None;
                 check(unsafe { (api.brightness)(raw, *value) })?;
                 false
             }
-            LedBrightness { .. } => bail!(alchemy_device_api::UiFailure::new("backend.b316", "LED 亮度必须先经 RGB 比例调光解析")),
+            LedBrightness { .. } => bail!(alchemy_device_api::UiFailure::new(
+                "backend.b316",
+                "LED 亮度必须先经 RGB 比例调光解析"
+            )),
             LedColor { color } => {
                 let rgb = storage::color(color)?;
                 check(unsafe { (api.rgb)(raw, 24, rgb[0], rgb[1], rgb[2]) })?;
@@ -494,8 +553,15 @@ impl Device<'_> {
             }
             KeyGif { key, .. } => {
                 self.handle.image(*key, &p.image)?;
-                self.gifs
-                    .insert(*key, p.animation.take().context(alchemy_device_api::UiFailure::new("backend.b317", "GIF 未解码"))?);
+                let mut animation =
+                    p.animation
+                        .take()
+                        .context(alchemy_device_api::UiFailure::new(
+                            "backend.b317",
+                            "GIF 未解码",
+                        ))?;
+                animation.next = Instant::now() + animation.frames[0].1;
+                self.gifs.insert(*key, animation);
                 true
             }
             ClearGif { key } => {
@@ -517,26 +583,113 @@ impl Device<'_> {
             Firmware => {
                 self.firmware = self.handle.firmware()?;
                 host.api.cached_value(
-                    self.connection.as_ref().context(alchemy_device_api::UiFailure::new("backend.b318", "设备会话已失效"))?,
+                    self.connection
+                        .as_ref()
+                        .context(alchemy_device_api::UiFailure::new(
+                            "backend.b318",
+                            "设备会话已失效",
+                        ))?,
                     "firmware",
                     self.firmware.clone(),
                 )?;
                 false
             }
         };
+        self.display.record(&p.command, &p.image);
         Ok(dirty)
     }
-    fn tick(&mut self) -> Result<()> {
+    fn finish_slide(&mut self, host: &AdapterHost) -> Result<()> {
+        if let Some(slide) = self.slide.take() {
+            if !host.cancel.is_cancelled() && host.api.current(&slide.receipt.id) {
+                let result = self
+                    .submit_slide_frame(slide.presentation.into_target(), host)
+                    .map(|_| ());
+                if result.is_err() {
+                    self.display.invalidate();
+                }
+                host.api.complete(
+                    &slide.receipt.id,
+                    result
+                        .as_ref()
+                        .map(|_| ())
+                        .map_err(|error| anyhow::anyhow!(error.to_string())),
+                );
+                result?;
+            }
+        }
+        Ok(())
+    }
+    fn submit_slide_frame(
+        &mut self,
+        mut frame: Vec<Prepared>,
+        host: &AdapterHost,
+    ) -> Result<usize> {
+        // The same bytes have already been accepted within this presentation.
+        // Preserve the one final refresh, and still install GIF playback state.
+        frame.retain(|item| !self.display.matches_static(item));
+        let bytes = frame.iter().map(|item| item.image.len()).sum();
+        self.submit_batch(frame, true, host)?;
+        Ok(bytes)
+    }
+    fn tick_slide(&mut self, host: &AdapterHost) -> Result<()> {
+        let Some(mut slide) = self.slide.take() else {
+            return Ok(());
+        };
+        // All frame bytes were encoded before the first submission. This is one
+        // uninterrupted page upload with one refresh, just like a normal page.
+        let result = slide.presentation.tick(
+            Instant::now(),
+            || !host.cancel.is_cancelled() && host.api.current(&slide.receipt.id),
+            |frame| {
+                let started = Instant::now();
+                let bytes = self.submit_slide_frame(frame, host)?;
+                slide.timing.accepted(bytes, started.elapsed());
+                Ok(())
+            },
+        );
+        match result {
+            Ok(slide_transport::Progress::Complete) => {
+                let started = Instant::now();
+                host.api.complete(&slide.receipt.id, Ok(()));
+                let receipts_ms = started.elapsed().as_millis();
+                host.api.log("info", format!("M18 slide SDK submission: {} frames, {} image bytes, slowest frame {} ms, final frame {} ms, receipt publication {} ms (not drawing completion)", slide.timing.frames, slide.timing.bytes, slide.timing.max_ms, slide.timing.last_ms, receipts_ms));
+            }
+            Ok(slide_transport::Progress::Pending) => self.slide = Some(slide),
+            Ok(slide_transport::Progress::Cancelled) => {} // Dropping the receipt lease cancels it.
+            Err(error) => {
+                self.display.invalidate();
+                host.api
+                    .complete(&slide.receipt.id, Err(anyhow::anyhow!(error.to_string())));
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+    fn finish_fade(&mut self) -> Result<()> {
+        if let Some(fade) = self.fade.take() {
+            check(unsafe { (self.handle.api.brightness)(self.handle.raw, fade.target) })?;
+        }
+        Ok(())
+    }
+    fn tick(&mut self, host: &AdapterHost) -> Result<()> {
         if let Ok(error) = self.reader.error.try_recv() {
             bail!("按键读取失败：{error}");
         }
+        self.tick_slide(host)?;
         let now = Instant::now();
+        if let Some((value, done)) = self.fade.as_mut().and_then(|fade| fade.sample(now)) {
+            check(unsafe { (self.handle.api.brightness)(self.handle.raw, value) })?;
+            if done {
+                self.fade = None;
+            }
+        }
         let mut dirty = false;
         if self.gif_running {
             for (key, a) in &mut self.gifs {
                 if a.frames.len() > 1 && now >= a.next {
                     a.index = (a.index + 1) % a.frames.len();
                     self.handle.image(*key, &a.frames[a.index].0)?;
+                    self.display.key(*key, &a.frames[a.index].0);
                     a.next = now + a.frames[a.index].1;
                     dirty = true;
                 }
@@ -594,7 +747,10 @@ impl DeviceSession for Device<'_> {
                     .unwrap_or(0),
             );
             if bytes > MAX_PAGE_BYTES {
-                bail!(alchemy_device_api::UiFailure::new("backend.b319", "预编码数据超过 64 MiB"))
+                bail!(alchemy_device_api::UiFailure::new(
+                    "backend.b319",
+                    "预编码数据超过 64 MiB"
+                ))
             }
             prepared.push(item);
         }
@@ -617,15 +773,172 @@ impl DeviceSession for Device<'_> {
 }
 
 fn execute_batch(device: &mut Device<'_>, batch: TransportBatch, host: &AdapterHost) -> Result<()> {
-    let result = (|| {
-        let prepared = device.prepare_batch(&batch.work, &host.root, &host.cancel)?;
+    let result: Result<bool> = (|| {
         if host.cancel.is_cancelled() || !host.api.current(&batch.id) {
-            bail!(alchemy_device_api::UiFailure::new("backend.b311", "操作已过期"))
+            bail!(alchemy_device_api::UiFailure::new(
+                "backend.b311",
+                "操作已过期"
+            ))
         }
-        device.submit_batch(prepared, batch.page, host)
+        let interrupts = batch.page
+            || batch.work.iter().any(|w| {
+                w.command.visual() || matches!(w.command, HardwareCommand::ScreenBrightness { .. })
+            });
+        if interrupts {
+            // An explicit command completes the current destination first. A new
+            // page has invalidated it already and therefore cannot replay it.
+            device.finish_slide(host)?;
+        }
+        let prepared = device.prepare_batch(&batch.work, &host.root, &host.cancel)?;
+        let transition = if batch.page_changed {
+            crate::transition::M18PageTransition::from_module(
+                &host.api.module_config(&batch.connection)?,
+            )?
+        } else {
+            Default::default()
+        };
+        let motion = if batch.page && transition.mode.slides() {
+            slide_transport::prepare_frames(
+                &device.display,
+                &prepared,
+                &transition,
+                MAX_PAGE_BYTES.saturating_sub(slide_transport::prepared_bytes(&prepared)),
+                || !host.cancel.is_cancelled() && host.api.current(&batch.id),
+            )?
+        } else {
+            None
+        };
+        if host.cancel.is_cancelled() || !host.api.current(&batch.id) {
+            bail!(alchemy_device_api::UiFailure::new(
+                "backend.b311",
+                "操作已过期"
+            ))
+        }
+        if batch.page || batch.work.iter().any(|w| w.command.visual()) {
+            device.finish_fade()?;
+        }
+        if host.cancel.is_cancelled() || !host.api.current(&batch.id) {
+            bail!(alchemy_device_api::UiFailure::new(
+                "backend.b311",
+                "操作已过期"
+            ))
+        }
+        if let Some(frames) = motion {
+            let mut target = Vec::with_capacity(prepared.len());
+            // Apply the page's screen/LED settings once at the start, so a later
+            // explicit adjustment is not overwritten at the animation's end.
+            for item in prepared {
+                if matches!(
+                    item.command,
+                    HardwareCommand::ScreenBrightness { .. }
+                        | HardwareCommand::LedColor { .. }
+                        | HardwareCommand::LedColors { .. }
+                        | HardwareCommand::ResetLed
+                ) {
+                    device.execute(item, host)?;
+                } else {
+                    target.push(item);
+                }
+            }
+            device.gif_running = false;
+            device.slide = Some(PendingSlide {
+                receipt: SlideReceipt {
+                    id: batch.id.clone(),
+                    api: host.api.clone(),
+                },
+                presentation: slide_transport::Presentation::new(
+                    target,
+                    frames,
+                    transition.duration_ms,
+                    Instant::now(),
+                ),
+                timing: Default::default(),
+            });
+            return Ok(true);
+        }
+        // The preceding restoration is an SDK call: revalidate again at the actual
+        // page submission boundary, after all file/config reads and preparation.
+        if host.cancel.is_cancelled() || !host.api.current(&batch.id) {
+            bail!(alchemy_device_api::UiFailure::new(
+                "backend.b311",
+                "操作已过期"
+            ))
+        }
+        let target = submit_transition(prepared, &transition, |submission| match submission {
+            Submission::Brightness(value) => {
+                check(unsafe { (device.handle.api.brightness)(device.handle.raw, value) })
+            }
+            Submission::Page(prepared) => device.submit_batch(prepared, batch.page, host),
+        })?;
+        if let Some(target) = target {
+            device.fade = Some(crate::transition::FadeIn::new(
+                target,
+                transition.duration_ms,
+                Instant::now(),
+            ));
+        }
+        Ok(false)
     })();
-    host.api.complete(&batch.id, result);
+    match result {
+        Ok(true) => {} // Deferred receipt belongs to PendingSlide until final submission.
+        Ok(false) => host.api.complete(&batch.id, Ok(())),
+        Err(error) => {
+            device.display.invalidate();
+            host.api.complete(&batch.id, Err(error));
+        }
+    }
     Ok(())
+}
+
+enum Submission {
+    Brightness(u8),
+    Page(Vec<Prepared>),
+}
+fn submit_transition(
+    mut prepared: Vec<Prepared>,
+    transition: &crate::transition::M18PageTransition,
+    mut apply: impl FnMut(Submission) -> Result<()>,
+) -> Result<Option<u8>> {
+    let target = fade_target(&mut prepared, transition);
+    let result = (|| {
+        if target.is_some() {
+            apply(Submission::Brightness(0))?;
+        }
+        apply(Submission::Page(prepared))
+    })();
+    if let Err(error) = result {
+        // Also restore after a failed dim call: its hardware outcome is uncertain.
+        if let Some(target) = target {
+            if let Err(restore) = apply(Submission::Brightness(target)) {
+                return Err(
+                    error.context(format!("Transition brightness restore failed: {restore}"))
+                );
+            }
+        }
+        return Err(error);
+    }
+    Ok(target)
+}
+
+fn fade_target(
+    prepared: &mut [Prepared],
+    transition: &crate::transition::M18PageTransition,
+) -> Option<u8> {
+    if transition.mode != crate::transition::M18TransitionMode::FadeIn {
+        return None;
+    }
+    prepared.iter_mut().find_map(|item| {
+        if let HardwareCommand::ScreenBrightness { value } = &mut item.command {
+            let target = *value;
+            if target == 0 {
+                return None;
+            }
+            *value = 0;
+            Some(target)
+        } else {
+            None
+        }
+    })
 }
 
 fn submit_prepared(
@@ -645,7 +958,10 @@ fn submit_prepared(
     }
     if dirty {
         if is_page {
-            bail!(alchemy_device_api::UiFailure::new("backend.b320", "页面批次缺少末尾刷新命令"));
+            bail!(alchemy_device_api::UiFailure::new(
+                "backend.b320",
+                "页面批次缺少末尾刷新命令"
+            ));
         }
         apply(None)?;
     }
@@ -732,13 +1048,18 @@ fn worker(
             if let Some(device) = devices.get_mut(&batch.connection.device_id) {
                 execute_batch(device, batch, &host)?;
             } else {
-                host.api
-                    .complete(&batch.id, Err(anyhow::anyhow!(alchemy_device_api::UiFailure::new("backend.b321", "设备已断开"))));
+                host.api.complete(
+                    &batch.id,
+                    Err(anyhow::anyhow!(alchemy_device_api::UiFailure::new(
+                        "backend.b321",
+                        "设备已断开"
+                    ))),
+                );
             }
         }
         let mut failed = vec![];
         for (id, d) in &mut devices {
-            if let Err(e) = d.tick() {
+            if let Err(e) = d.tick(&host) {
                 host.api.log("warning", e.to_string());
                 readers.lock().unwrap().remove(&d.path);
                 if let Some(token) = &d.connection {
@@ -757,6 +1078,14 @@ fn worker(
         }));
     }
     readers.lock().unwrap().clear();
+    for device in devices.values_mut() {
+        if let Err(error) = device.finish_fade() {
+            host.api.log(
+                "warning",
+                format!("Transition brightness restore failed: {error}"),
+            );
+        }
+    }
     drop(devices); // joins all readers before Api's DLL is released.
     Ok(())
 }
@@ -846,6 +1175,60 @@ mod tests {
             image: vec![],
             animation: None,
         }
+    }
+    #[test]
+    fn transition_wraps_one_page_and_restores_brightness_on_dim_or_upload_failure() {
+        let settings = crate::transition::M18PageTransition {
+            mode: crate::transition::M18TransitionMode::FadeIn,
+            duration_ms: 300,
+        };
+        for fail in [None, Some("dim"), Some("page")] {
+            let mut writes = Vec::new();
+            let result = submit_transition(
+                vec![prepared(HardwareCommand::ScreenBrightness { value: 70 })],
+                &settings,
+                |s| {
+                    match s {
+                        Submission::Brightness(value) => {
+                            writes.push(value.to_string());
+                            if fail == Some("dim") && value == 0 {
+                                bail!("dim failed");
+                            }
+                        }
+                        Submission::Page(items) => {
+                            writes.push("page".into());
+                            assert!(matches!(
+                                items[0].command,
+                                HardwareCommand::ScreenBrightness { value: 0 }
+                            ));
+                            if fail == Some("page") {
+                                bail!("upload failed");
+                            }
+                        }
+                    }
+                    Ok(())
+                },
+            );
+            match fail {
+                None => {
+                    assert_eq!(result.unwrap(), Some(70));
+                    assert_eq!(writes, ["0", "page"]);
+                }
+                Some("dim") => {
+                    assert!(result.is_err());
+                    assert_eq!(writes, ["0", "70"]);
+                }
+                _ => {
+                    assert!(result.is_err());
+                    assert_eq!(writes, ["0", "page", "70"]);
+                }
+            }
+        }
+        let mut items = vec![prepared(HardwareCommand::ScreenBrightness { value: 70 })];
+        assert_eq!(fade_target(&mut items, &Default::default()), None);
+        let mut black = vec![prepared(HardwareCommand::ScreenBrightness { value: 0 })];
+        assert_eq!(fade_target(&mut black, &settings), None);
+        assert_eq!(fade_target(&mut [], &settings), None);
     }
     #[test]
     fn page_has_one_commit_after_all_keys_but_single_key_commits_itself() {
