@@ -37,9 +37,56 @@ struct HidInfo {
     interface: i32,
     next: *mut HidInfo,
 }
+type EnumerateHids = unsafe extern "C" fn(u16, u16) -> *mut HidInfo;
+type FreeHids = unsafe extern "C" fn(*mut HidInfo);
+const M18_USB_IDS: [(u16, u16); 4] = [
+    (0x6603, 0x1009),
+    (0x6603, 0x1012),
+    (0x5548, 0x1000),
+    (0x5548, 0x1012),
+];
+struct HidEnumeration {
+    head: *mut HidInfo,
+    free: FreeHids,
+}
+impl Drop for HidEnumeration {
+    fn drop(&mut self) {
+        if !self.head.is_null() {
+            unsafe { (self.free)(self.head) };
+        }
+    }
+}
+fn visit_m18_hids(
+    enumerate: EnumerateHids,
+    free: FreeHids,
+    mut visit: impl FnMut(&HidInfo) -> Result<()>,
+) -> Result<()> {
+    // Filtering must happen inside hid_enumerate, before it opens devices and
+    // reads strings. A wildcard scan can block on an unrelated HID driver and
+    // starve every page/animation/heartbeat sharing this SDK worker.
+    for (vendor, product) in M18_USB_IDS {
+        let list = HidEnumeration {
+            head: unsafe { enumerate(vendor, product) },
+            free,
+        };
+        let mut ptr = list.head;
+        while !ptr.is_null() {
+            let info = unsafe { &*ptr };
+            if (info.vendor, info.product) == (vendor, product)
+                && info.usage_page == 0xffa0
+                && info.usage == 1
+                && !info.path.is_null()
+            {
+                visit(info)?;
+            }
+            ptr = info.next;
+        }
+    }
+    Ok(())
+}
 struct Api {
-    enumerate: unsafe extern "C" fn(u16, u16) -> *mut HidInfo,
-    free: unsafe extern "C" fn(*mut HidInfo),
+    enumerate: EnumerateHids,
+    free: FreeHids,
     create: unsafe extern "C" fn(*const HidInfo, *mut Handle) -> u32,
     destroy: Simple,
     size: unsafe extern "C" fn(Handle, u16, u16, u16) -> u32,
@@ -103,73 +150,61 @@ impl Api {
         existing: &BTreeSet<String>,
         tx: &mpsc::Sender<SdkEvent>,
     ) -> Result<(BTreeSet<String>, Vec<Device<'a>>)> {
-        let head = unsafe { (self.enumerate)(0, 0) };
-        let mut ptr = head;
         let mut present = BTreeSet::new();
-        let result = {
-            let mut added = Vec::new();
-            while !ptr.is_null() {
-                let info = unsafe { &*ptr };
-                if matches!(
-                    (info.vendor, info.product),
-                    (0x6603, 0x1009) | (0x6603, 0x1012) | (0x5548, 0x1000) | (0x5548, 0x1012)
-                ) && info.usage_page == 0xffa0
-                    && info.usage == 1
-                    && !info.path.is_null()
-                {
-                    let path = unsafe { CStr::from_ptr(info.path) }
-                        .to_string_lossy()
-                        .into_owned();
-                    present.insert(path.clone());
-                    if !existing.contains(&path) {
-                        let opened: Result<Device<'a>> = (|| {
-                            let mut raw = std::ptr::null_mut();
-                            check(unsafe { (self.create)(info, &mut raw) })?;
-                            if raw.is_null() {
-                                bail!(alchemy_device_api::UiFailure::new("backend.b312", "C SDK 返回空设备句柄"))
-                            }
-                            let handle = Transport { api: self, raw };
-                            check(unsafe { (self.size)(raw, 513, 1025, 0) })?;
-                            let serial = wide_string(info.serial);
-                            let id = format!(
-                                "{:04x}:{:04x}:{}",
-                                info.vendor,
-                                info.product,
-                                if serial.is_empty() { &path } else { &serial }
-                            );
-                            check(unsafe { (self.wake)(raw) })?;
-                            let firmware = handle.firmware()?;
-                            Ok(Device {
-                                connection: None,
-                                reader: Reader::start(self.read, raw, path.clone(), tx.clone()),
-                                handle,
-                                id,
-                                path,
-                                serial,
-                                firmware,
-                                vendor: info.vendor,
-                                product: info.product,
-                                gifs: BTreeMap::new(),
-                                gif_running: false,
-                                heartbeat: Instant::now(),
-                            })
-                        })();
-                        match opened {
-                            Ok(device) => added.push(device),
-                            Err(error) => {
-                                let _ = tx.try_send(SdkEvent::InputReport {
-                                    header: format!("设备打开失败：{error:#}"),
-                                });
-                            }
-                        }
+        let mut added = Vec::new();
+        visit_m18_hids(self.enumerate, self.free, |info| {
+            let path = unsafe { CStr::from_ptr(info.path) }
+                .to_string_lossy()
+                .into_owned();
+            present.insert(path.clone());
+            if !existing.contains(&path) {
+                let opened: Result<Device<'a>> = (|| {
+                    let mut raw = std::ptr::null_mut();
+                    check(unsafe { (self.create)(info, &mut raw) })?;
+                    if raw.is_null() {
+                        bail!(alchemy_device_api::UiFailure::new(
+                            "backend.b312",
+                            "C SDK 返回空设备句柄"
+                        ))
+                    }
+                    let handle = Transport { api: self, raw };
+                    check(unsafe { (self.size)(raw, 513, 1025, 0) })?;
+                    let serial = wide_string(info.serial);
+                    let id = format!(
+                        "{:04x}:{:04x}:{}",
+                        info.vendor,
+                        info.product,
+                        if serial.is_empty() { &path } else { &serial }
+                    );
+                    check(unsafe { (self.wake)(raw) })?;
+                    let firmware = handle.firmware()?;
+                    Ok(Device {
+                        connection: None,
+                        reader: Reader::start(self.read, raw, path.clone(), tx.clone()),
+                        handle,
+                        id,
+                        path,
+                        serial,
+                        firmware,
+                        vendor: info.vendor,
+                        product: info.product,
+                        gifs: BTreeMap::new(),
+                        gif_running: false,
+                        heartbeat: Instant::now(),
+                    })
+                })();
+                match opened {
+                    Ok(device) => added.push(device),
+                    Err(error) => {
+                        let _ = tx.try_send(SdkEvent::InputReport {
+                            header: format!("设备打开失败：{error:#}"),
+                        });
                     }
                 }
-                ptr = info.next;
             }
-            Ok((present, added))
-        };
-        unsafe { (self.free)(head) };
-        result
+            Ok(())
+        })?;
+        Ok((present, added))
     }
 }
 fn wide_string(ptr: *const u16) -> String {
@@ -751,6 +786,54 @@ pub async fn session(host: AdapterHost, paths: &SdkPaths) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn discovery_filters_before_driver_string_reads_and_frees_lists_on_early_failure() {
+        use std::sync::atomic::{AtomicBool, AtomicUsize};
+        static WILDCARD: AtomicBool = AtomicBool::new(false);
+        static FREED: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "C" fn enumerate(vendor: u16, product: u16) -> *mut HidInfo {
+            if vendor == 0 || product == 0 {
+                WILDCARD.store(true, Ordering::SeqCst);
+                return std::ptr::null_mut(); // An unrelated HID would stall here in the real SDK.
+            }
+            if vendor != 0x6603 || !matches!(product, 0x1009 | 0x1012) {
+                return std::ptr::null_mut();
+            }
+            let (vendor, product) = if product == 0x1009 {
+                (0x0b05, 0x1b9b)
+            } else {
+                (vendor, product)
+            };
+            Box::into_raw(Box::new(HidInfo {
+                path: b"fixture\0".as_ptr().cast(),
+                vendor,
+                product,
+                serial: std::ptr::null(),
+                release: 0,
+                manufacturer: std::ptr::null(),
+                product_name: std::ptr::null(),
+                usage_page: 0xffa0,
+                usage: 1,
+                interface: 0,
+                next: std::ptr::null_mut(),
+            }))
+        }
+        unsafe extern "C" fn free(head: *mut HidInfo) {
+            drop(unsafe { Box::from_raw(head) });
+            FREED.fetch_add(1, Ordering::SeqCst);
+        }
+        let mut devices = Vec::new();
+        visit_m18_hids(enumerate, free, |info| {
+            devices.push((info.vendor, info.product));
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(devices, vec![(0x6603, 0x1012)]);
+        assert!(!WILDCARD.load(Ordering::SeqCst));
+        assert_eq!(FREED.load(Ordering::SeqCst), 2);
+        assert!(visit_m18_hids(enumerate, free, |_| anyhow::bail!("visitor failed")).is_err());
+        assert_eq!(FREED.load(Ordering::SeqCst), 4);
+    }
     #[test]
     fn idle_read_timeout_does_not_disconnect_but_other_errors_fail() {
         assert!(!read_has_data(0x05000302).unwrap());
