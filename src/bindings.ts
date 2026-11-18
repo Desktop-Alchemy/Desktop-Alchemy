@@ -50,7 +50,8 @@ export type UiLanguageState = { preference: LanguagePreference, locale: UiLocale
 export type UiMessage = { key: string, args: { [key in string]?: JsonValue }, };
 export type UiError = { message: UiMessage, detail: string, };
 export type TrayAction = "device" | "pages" | "plugins" | "show" | "settings" | "exit";
-export type TrayState = { connection: string, theme: string, };
+export type TrayState = { connection: string, theme: string, devices: Array<TrayDeviceState>, };
+export type TrayDeviceState = { profile_id: string, name: string, connection: string, };
 export type BackupSummary = { format_version: number, app_version: string, created_at: number, pages: number, scenes: number, images: number, folders: number, library_items: number, applications: number, plugins: number, total_bytes: number,
 /**
  * SHA-256 of the exact archive reviewed by the user.

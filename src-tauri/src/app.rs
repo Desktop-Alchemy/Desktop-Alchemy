@@ -793,19 +793,11 @@ pub fn run() {
                 } }
             });
             let mut rx = core.changed.subscribe();
-            let tray_devices = devices.clone();
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                loop { match rx.recv().await {
-                    Ok(mut s) => {
-                        if let Ok(snapshot) = tray_devices.snapshot() {
-                            s.connection = if snapshot.devices.iter().any(|d| d.state.connection == "ready") { "ready" } else { "disconnected" }.into();
-                        }
-                        crate::tray_panel::update(&handle, &s);
-                    },
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
-                    Err(_) => break,
-                } }
+                while let Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) = rx.recv().await {
+                    crate::tray_panel::update(&handle);
+                }
             });
             let mut rx = core.action_errors.subscribe();
             let handle = app.handle().clone();
@@ -825,6 +817,7 @@ pub fn run() {
                 while let Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) = device_changes.recv().await {
                     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                     while device_changes.try_recv().is_ok() {}
+                    crate::tray_panel::update(&device_handle);
                     if let Ok(snapshot) = device_manager.snapshot() { let _ = device_handle.emit_to("main", "workspace-state", snapshot); }
                 }
             });

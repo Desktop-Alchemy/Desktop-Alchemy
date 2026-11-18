@@ -2,7 +2,7 @@
 use crate::{
     app::AppState,
     desktop,
-    model::{Snapshot, TrayAction, TrayState},
+    model::{TrayAction, TrayState},
 };
 use anyhow::{anyhow, Result};
 use std::sync::{
@@ -14,7 +14,17 @@ use tauri::{Emitter, Manager, PhysicalPosition, PhysicalSize};
 
 pub const LABEL: &str = "tray-panel";
 const WIDTH: f64 = 276.0;
-const HEIGHT: f64 = 274.0;
+const HEIGHT: f64 = 372.0;
+
+fn panel_height(device_count: usize) -> f64 {
+    // TrayPanel.vue: base panel plus list padding/border and up to three rows.
+    274.0
+        + if device_count == 0 {
+            0.0
+        } else {
+            11.0 + 29.0 * device_count.min(3) as f64
+        }
+}
 
 #[derive(Default)]
 pub struct TrayPanelHost {
@@ -47,9 +57,13 @@ fn position(
     anchor: Bounds,
     work: Bounds,
     scale: f64,
+    device_count: usize,
 ) -> (PhysicalPosition<i32>, PhysicalSize<u32>) {
     let width = (WIDTH * scale).round().min(work.width).max(1.0);
-    let height = (HEIGHT * scale).round().min(work.height).max(1.0);
+    let height = (panel_height(device_count) * scale)
+        .round()
+        .min(work.height)
+        .max(1.0);
     let gap = 4.0 * scale;
     let above = anchor.y - height - gap;
     let below = anchor.y + anchor.height + gap;
@@ -62,6 +76,36 @@ fn position(
         ),
         PhysicalSize::new(width as u32, height as u32),
     )
+}
+
+fn place(window: &tauri::WebviewWindow, anchor: Bounds, device_count: usize) -> Result<()> {
+    let monitor = window
+        .monitor_from_point(
+            anchor.x + anchor.width / 2.0,
+            anchor.y + anchor.height / 2.0,
+        )?
+        .or(window.primary_monitor()?)
+        .ok_or_else(|| {
+            anyhow!(alchemy_device_api::UiFailure::new(
+                "backend.b252",
+                "无法定位托盘显示器"
+            ))
+        })?;
+    let work = monitor.work_area();
+    let (point, size) = position(
+        anchor,
+        Bounds {
+            x: work.position.x as f64,
+            y: work.position.y as f64,
+            width: work.size.width as f64,
+            height: work.size.height as f64,
+        },
+        monitor.scale_factor(),
+        device_count,
+    );
+    window.set_size(size)?;
+    window.set_position(point)?;
+    Ok(())
 }
 
 pub fn fallback_menu(handle: &tauri::AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>> {
@@ -268,7 +312,13 @@ pub fn ready(handle: &tauri::AppHandle) -> Result<TrayState> {
         .state::<TrayPanelHost>()
         .ready
         .store(true, Ordering::SeqCst);
-    Ok(TrayState::from(&handle.state::<AppState>().core.snapshot()))
+    current_state(handle)
+}
+
+fn current_state(handle: &tauri::AppHandle) -> Result<TrayState> {
+    Ok(TrayState::from(
+        &handle.state::<AppState>().devices.snapshot()?,
+    ))
 }
 
 pub fn hide(handle: &tauri::AppHandle) {
@@ -348,21 +398,9 @@ pub fn toggle(
         width: s.width,
         height: s.height,
     };
-    let work = monitor.work_area();
-    let (point, size) = position(
-        anchor,
-        Bounds {
-            x: work.position.x as f64,
-            y: work.position.y as f64,
-            width: work.size.width as f64,
-            height: work.size.height as f64,
-        },
-        scale,
-    );
     *host.anchor.lock().unwrap() = Some(anchor);
-    window.set_size(size)?;
-    window.set_position(point)?;
-    let state = TrayState::from(&handle.state::<AppState>().core.snapshot());
+    let state = current_state(handle)?;
+    place(&window, anchor, state.devices.len())?;
     *host.last_state.lock().unwrap() = Some(state.clone());
     window.emit("tray-opened", state)?;
     window.show()?;
@@ -370,7 +408,7 @@ pub fn toggle(
     Ok(())
 }
 
-pub fn update(handle: &tauri::AppHandle, snapshot: &Snapshot) {
+pub fn update(handle: &tauri::AppHandle) {
     let host = handle.state::<TrayPanelHost>();
     if !host.ready.load(Ordering::SeqCst) {
         return;
@@ -379,8 +417,24 @@ pub fn update(handle: &tauri::AppHandle, snapshot: &Snapshot) {
         if !window.is_visible().unwrap_or(false) {
             return;
         }
-        let state = TrayState::from(snapshot);
+        let Ok(state) = current_state(handle) else {
+            return;
+        };
         let mut previous = host.last_state.lock().unwrap();
+        if previous
+            .as_ref()
+            .is_none_or(|old| panel_height(old.devices.len()) != panel_height(state.devices.len()))
+        {
+            if let Some(anchor) = *host.anchor.lock().unwrap() {
+                if let Err(error) = place(&window, anchor, state.devices.len()) {
+                    handle
+                        .state::<AppState>()
+                        .core
+                        .log("warning", format!("Tray layout update failed: {error}"));
+                    return;
+                }
+            }
+        }
         if previous.as_ref() != Some(&state) && window.emit("tray-state", &state).is_ok() {
             *previous = Some(state);
         }
@@ -425,7 +479,10 @@ mod tests {
     use super::*;
     #[test]
     fn placement_respects_work_area_dpi_and_negative_coordinates() {
-        for scale in [1.0, 1.5, 2.0] {
+        for (scale, device_count) in [1.0, 1.5, 2.0]
+            .into_iter()
+            .flat_map(|scale| [0, 1, 2, 8].map(move |count| (scale, count)))
+        {
             for (x, y) in [(0.0, 0.0), (-1920.0, -1080.0), (1920.0, 0.0)] {
                 let work = Bounds {
                     x,
@@ -449,16 +506,21 @@ mod tests {
                         },
                         work,
                         scale,
+                        device_count,
                     );
                     assert!(p.x as f64 >= x && p.y as f64 >= y);
                     assert!((p.x as f64 + s.width as f64) <= x + work.width);
                     assert!((p.y as f64 + s.height as f64) <= y + work.height);
                     assert_eq!(s.width, (WIDTH * scale).round() as u32);
+                    assert_eq!(
+                        s.height,
+                        (panel_height(device_count) * scale).round() as u32
+                    );
                     if ay == y {
                         assert_eq!(p.y, (y + 32.0 + 4.0 * scale).round() as i32);
                     }
                     if ay == y + 1040.0 {
-                        assert_eq!(p.y, (ay - HEIGHT * scale - 4.0 * scale).round() as i32);
+                        assert_eq!(p.y, (ay - s.height as f64 - 4.0 * scale).round() as i32);
                     }
                 }
             }
@@ -477,6 +539,7 @@ mod tests {
                 height: 180.0,
             },
             1.5,
+            8,
         );
         assert_eq!(p, PhysicalPosition::new(-100, 0));
         assert_eq!(s, PhysicalSize::new(200, 180));

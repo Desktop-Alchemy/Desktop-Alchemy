@@ -128,6 +128,44 @@ fn connect(
     (manager.device(&token.device_id).unwrap(), host, token)
 }
 
+#[tokio::test]
+async fn tray_projects_all_device_states_instead_of_the_global_core() {
+    let fixture = Fixture::new();
+    let manager = fixture.manager();
+    let (a, host_a, token_a) = connect(&manager, "test.a", "one");
+    let (b, _, _) = connect(&manager, "test.b", "two");
+    assert_eq!(manager.host.snapshot().connection, "disconnected");
+    let tray = TrayState::from(&manager.snapshot().unwrap());
+    assert_eq!(tray.connection, "ready");
+    assert_eq!(tray.devices.len(), 2);
+    assert!(tray.devices.iter().all(|d| d.connection == "ready"));
+    host_a.api.disconnected(&token_a);
+    let tray = TrayState::from(&manager.snapshot().unwrap());
+    assert_eq!(tray.connection, "ready");
+    assert_eq!(
+        tray.devices
+            .iter()
+            .filter(|d| d.connection == "ready")
+            .count(),
+        1
+    );
+    b.inner.lock().unwrap().snapshot.connection = "reconnecting".into();
+    assert_eq!(
+        TrayState::from(&manager.snapshot().unwrap()).connection,
+        "reconnecting"
+    );
+    b.inner.lock().unwrap().snapshot.connection = "error".into();
+    assert_eq!(
+        TrayState::from(&manager.snapshot().unwrap()).connection,
+        "error"
+    );
+    b.inner.lock().unwrap().snapshot.connection = "disconnected".into();
+    let tray = TrayState::from(&manager.snapshot().unwrap());
+    assert_eq!(tray.connection, "disconnected");
+    assert_eq!(tray.devices.len(), 2); // Offline profiles remain individually visible.
+    assert_eq!(a.snapshot().connection, "disconnected");
+}
+
 #[test]
 fn synchronous_startup_and_native_callbacks_use_the_host_runtime() {
     assert!(tokio::runtime::Handle::try_current().is_err());

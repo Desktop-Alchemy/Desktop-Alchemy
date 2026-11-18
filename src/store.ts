@@ -98,7 +98,11 @@ export function initializeLanguage(): Promise<void> {
 
 // This client deliberately does not instantiate useDesktopAlchemy or its editor/save lifecycle.
 export function useTrayPanel() {
-  const state = ref<TrayState>({ connection: "disconnected", theme: "system" });
+  const state = ref<TrayState>({
+    connection: "disconnected",
+    theme: "system",
+    devices: [],
+  });
   const error = ref("");
   const busy = ref(false);
   const opened = ref(0);

@@ -92,6 +92,7 @@ mod bindings {
             UiError::decl(),
             TrayAction::decl(),
             TrayState::decl(),
+            TrayDeviceState::decl(),
             BackupSummary::decl(),
             BackupRestoreNotice::decl(),
             PluginIconRef::decl(),

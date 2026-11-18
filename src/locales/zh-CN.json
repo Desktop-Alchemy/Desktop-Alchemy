@@ -1,5 +1,8 @@
 {
   "ui": {
+    "trayShow": "显示窗口",
+    "traySettings": "应用设置",
+    "trayConnectedCount": "已连接 {connected} / {total} 台",
     "reloadSavedDraftsDescription": "放弃此设备配置中尚未保存的页面、按键与场景编辑，载入最新保存的配置？",
     "reloadSavedDrafts": "重新载入已保存配置",
     "devices": "设备",

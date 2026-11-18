@@ -23,12 +23,33 @@ pub enum TrayAction {
 pub struct TrayState {
     pub connection: String,
     pub theme: String,
+    pub devices: Vec<TrayDeviceState>,
 }
-impl From<&Snapshot> for TrayState {
-    fn from(snapshot: &Snapshot) -> Self {
+#[derive(Clone, Debug, Serialize, Deserialize, TS, PartialEq, Eq, schemars::JsonSchema)]
+pub struct TrayDeviceState {
+    pub profile_id: String,
+    pub name: String,
+    pub connection: String,
+}
+impl From<&WorkspaceSnapshot> for TrayState {
+    fn from(snapshot: &WorkspaceSnapshot) -> Self {
+        let devices: Vec<_> = snapshot
+            .devices
+            .iter()
+            .map(|device| TrayDeviceState {
+                profile_id: device.profile_id.clone(),
+                name: device.name.clone(),
+                connection: device.state.connection.clone(),
+            })
+            .collect();
         Self {
-            connection: snapshot.connection.clone(),
-            theme: snapshot.config.theme.clone(),
+            connection: ["ready", "reconnecting", "connecting", "error", "busy"]
+                .into_iter()
+                .find(|state| devices.iter().any(|d| d.connection == *state))
+                .unwrap_or("disconnected")
+                .into(),
+            theme: snapshot.global.theme.clone(),
+            devices,
         }
     }
 }

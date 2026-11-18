@@ -21,15 +21,32 @@ watch(
   },
   { immediate: true },
 );
-const connection = computed(
-  () =>
-    ({
-      ready: t("ui.connected"),
-      connecting: t("ui.connecting"),
-      reconnecting: t("ui.reconnecting"),
-      disconnected: t("ui.disconnected"),
-      error: t("ui.connectionError"),
-    })[tray.state.value.connection] ?? t("ui.disconnected"),
+const connectionLabel = (connection: string) =>
+  ({
+    ready: t("ui.connected"),
+    connecting: t("ui.connecting"),
+    reconnecting: t("ui.reconnecting"),
+    disconnected: t("ui.disconnected"),
+    error: t("ui.connectionError"),
+    busy: t("ui.deviceInUse"),
+  })[connection] ?? t("ui.disconnected");
+const devices = computed(() => {
+  const all = tray.state.value.devices ?? [];
+  return all.map((device) => ({
+    ...device,
+    label:
+      all.filter((d) => d.name === device.name).length > 1
+        ? `${device.name} · ${all.filter((d) => d.name === device.name).findIndex((d) => d.profile_id === device.profile_id) + 1}`
+        : device.name,
+  }));
+});
+const connection = computed(() =>
+  devices.value.length
+    ? t("ui.trayConnectedCount", {
+        connected: devices.value.filter((d) => d.connection === "ready").length,
+        total: devices.value.length,
+      })
+    : t("ui.noDevices"),
 );
 const entries: { action: TrayAction; label: string; icon: IconName }[] = [
   {
@@ -54,10 +71,18 @@ const entries: { action: TrayAction; label: string; icon: IconName }[] = [
     icon: "extensions",
   },
 ];
-const shortcuts: { action: TrayAction; label: string; icon: IconName }[] = [
+const shortcuts: {
+  action: TrayAction;
+  label: string;
+  description?: string;
+  icon: IconName;
+}[] = [
   {
     action: "show",
     get label() {
+      return t("ui.trayShow");
+    },
+    get description() {
       return t("ui.showWindow");
     },
     icon: "application",
@@ -65,6 +90,9 @@ const shortcuts: { action: TrayAction; label: string; icon: IconName }[] = [
   {
     action: "settings",
     get label() {
+      return t("ui.traySettings");
+    },
+    get description() {
       return t("ui.appSettings");
     },
     icon: "settings",
@@ -97,12 +125,17 @@ function keyboard(event: KeyboardEvent) {
     event.key === "End"
   )
     keyboardNavigation.value = true;
+  if (
+    (event.target as HTMLElement).classList.contains("tray-devices") &&
+    ["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)
+  )
+    return;
   const buttons = [
-    ...(panel.value?.querySelectorAll<HTMLButtonElement>(
-      "button:not(:disabled)",
+    ...(panel.value?.querySelectorAll<HTMLElement>(
+      "button:not(:disabled), [tabindex='0']",
     ) ?? []),
   ];
-  const current = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  const current = buttons.indexOf(document.activeElement as HTMLElement);
   let index: number;
   switch (event.key) {
     case "ArrowDown":
@@ -162,9 +195,26 @@ onUnmounted(() => {
           role="status"
           :data-connection="tray.state.value.connection"
         >
-          <i aria-hidden="true" />M18 {{ connection }}
+          <i aria-hidden="true" />{{ connection }}
         </span>
       </header>
+      <div v-if="devices.length" class="tray-device-section">
+        <ul class="tray-devices" tabindex="0" :aria-label="t('ui.deviceList')">
+          <li
+            v-for="device in devices"
+            :key="device.profile_id"
+            class="tray-connection"
+            :data-connection="device.connection"
+          >
+            <i aria-hidden="true" /><span
+              class="tray-device-name"
+              :title="device.label"
+              >{{ device.label }}</span
+            >
+            <span>{{ connectionLabel(device.connection) }}</span>
+          </li>
+        </ul>
+      </div>
       <nav class="tray-entries" :aria-label="t('ui.quickActions')">
         <button
           v-for="entry in entries"
@@ -181,6 +231,8 @@ onUnmounted(() => {
         <button
           v-for="entry in shortcuts"
           :key="entry.action"
+          :aria-label="entry.description ?? entry.label"
+          :title="entry.description ?? entry.label"
           :disabled="tray.busy.value"
           @click="tray.action(entry.action)"
         >
@@ -244,6 +296,7 @@ html.tray-surface,
   line-height: 18px;
 }
 .tray-connection i {
+  flex-shrink: 0;
   width: 6px;
   height: 6px;
   border-radius: 50%;
@@ -258,6 +311,32 @@ html.tray-surface,
 }
 .tray-connection[data-connection="error"] i {
   background: var(--error);
+}
+.tray-device-section {
+  margin: 0 10px;
+  padding: 5px 0;
+  border-top: 1px solid var(--border);
+}
+.tray-devices {
+  max-height: 87px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 6px;
+  list-style: none;
+}
+.tray-devices li {
+  height: 29px;
+}
+.tray-device-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tray-devices:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 .tray-entries {
   height: 128px;
@@ -287,12 +366,11 @@ html.tray-surface,
 }
 .tray-shortcuts {
   height: 64px;
-  width: fit-content;
-  margin: 0 auto;
+  margin: 0 10px;
   padding: 5px 0 7px;
   border-top: 1px solid var(--border);
   display: grid;
-  grid-template-columns: repeat(3, 68px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
 }
 .tray-shortcuts button {
@@ -304,6 +382,11 @@ html.tray-surface,
   padding: 5px 2px;
   font-size: 12px;
   border-radius: 8px;
+}
+.tray-shortcuts button span {
+  line-height: 18px;
+  white-space: nowrap;
+  text-align: center;
 }
 .tray-panel button:hover,
 .tray-keyboard .tray-panel button:focus-visible {

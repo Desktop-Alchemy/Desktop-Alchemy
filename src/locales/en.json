@@ -1,5 +1,8 @@
 {
   "ui": {
+    "trayShow": "Show",
+    "traySettings": "Settings",
+    "trayConnectedCount": "{connected} of {total} connected",
     "reloadSavedDraftsDescription": "Discard this profile’s unsaved page, input and scene edits and load the latest saved configuration?",
     "reloadSavedDrafts": "Reload saved configuration",
     "devices": "Devices",
